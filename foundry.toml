@@ -3,4 +3,61 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
-# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+########
+# Lint #
+########
+deny_warnings = true
+
+################
+# Solc options #
+################
+solc = '0.8.27'
+evm_version = 'shanghai'
+optimizer = true
+optimizer_runs = 200000
+via_ir = true
+
+###############
+# EVM options #
+###############
+gas_limit = 30000000
+gas_price = 1
+block_base_fee_per_gas = 0
+block_gas_limit = 30000000
+
+#####################
+# optimizer details #
+#####################
+[profile.default.optimizer_details]
+yul = true
+# The peephole optimizer is always on if no details are given,
+# use details to switch it off.
+peephole = true
+# The inliner is always off if no details are given,
+# use details to switch it on.
+inliner = true
+# The unused jumpdest remover is always on if no details are given,
+# use details to switch it off.
+jumpdest_remover = true
+# Sometimes re-orders literals in commutative operations.
+order_literals = true
+# Removes duplicate code blocks
+deduplicate = false
+# Common subexpression elimination, this is the most complicated step but
+# can also provide the largest gain.
+cse = true
+# Optimize representation of literal numbers and strings in code.
+constant_optimizer = true
+# Use unchecked arithmetic when incrementing the counter of for loops
+# under certain circumstances. It is always on if no details are given.
+simple_counter_for_loop_unchecked_increment = true
+
+######################
+# Fuzz tests options #
+######################
+[fuzz]
+# Reduce the numbers of runs if fuzz tests takes too long in your machine.
+runs = 2500
+
+# When debuging fuzz tests, uncomment this seed to make tests reproducible.
+seed = "0xdeadbeefdeadbeefdeadbeefdeadbeef"
