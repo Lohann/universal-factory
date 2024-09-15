@@ -7,9 +7,7 @@ struct Context {
     uint256 salt;
     uint8 callDepth;
     bool hasInitializer;
-    uint256 initializerLength;
-    // Contain only the first `19` bytes of the initializer.
-    bytes initializerSlice;
+    bytes initializer;
 }
 
 interface ISingletonFactory {
@@ -71,9 +69,9 @@ interface ISingletonFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
-     * @param initializer callback called after create the contract, this field doesn't affect the resulting address.
+     * @param params callback called after create the contract, this field doesn't affect the resulting address.
      */
-    function create2(uint256 salt, bytes calldata creationCode, bytes calldata initializer)
+    function create2(uint256 salt, bytes calldata creationCode, bytes calldata params)
         external
         payable
         returns (address);
@@ -99,9 +97,9 @@ interface ISingletonFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
-     * @param initializer callback called after create the contract, this value doesn't affect the resulting address.
+     * @param params callback called after create the contract, this value doesn't affect the resulting address.
      */
-    function create3(uint256 salt, bytes calldata creationCode, bytes calldata initializer)
+    function create3(uint256 salt, bytes calldata creationCode, bytes calldata params)
         external
         payable
         returns (address);

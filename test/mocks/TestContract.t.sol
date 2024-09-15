@@ -33,8 +33,9 @@ contract MockContract {
         require(ctx.contractAddress == address(this), "address mismatch");
         require(ctx.callDepth == 0, "depth mismatch");
         require(ctx.sender == owner, "unauthorized tx origin");
-        require(ctx.hasInitializer && ctx.initializerSlice.length == 4, "invalid initializer");
-        bytes memory slice = ctx.initializerSlice;
+        require(ctx.hasInitializer, "requires initializer");
+        require(ctx.initializer.length == 4, "invalid initializer");
+        bytes memory slice = ctx.initializer;
         bytes4 selector;
         assembly {
             selector := mload(add(slice, 0x20))

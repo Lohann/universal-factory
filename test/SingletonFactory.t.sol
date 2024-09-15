@@ -6,6 +6,7 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {ISingletonFactory, Context} from "../src/ISingletonFactory.sol";
 import {SingletonFactory} from "../src/SingletonFactory.sol";
 import {MockContract} from "./mocks/TestContract.t.sol";
+import {InspectContext} from "./mocks/InspectContext.t.sol";
 
 contract SingletonFactoryTest is Test {
     ISingletonFactory public factory;
@@ -22,6 +23,32 @@ contract SingletonFactoryTest is Test {
         bytes32 codeHash = keccak256(initCode);
         bytes32 create2Hash = keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), codeHash));
         return address(uint160(uint256(create2Hash)));
+    }
+
+    function create3addr(uint256 salt) private view returns (address) {
+        bytes32 codeHash = 0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b;
+        codeHash = keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), codeHash));
+        address proxyAddr = address(uint160(uint256(codeHash)));
+        codeHash = keccak256(abi.encodePacked(bytes2(0xd694), proxyAddr, uint8(0x01)));
+        return address(uint160(uint256(codeHash)));
+    }
+
+    function assertEq(Context memory a, Context memory b) private pure {
+        assertEq(a.contractAddress, b.contractAddress, "a.contractAddress != b.contractAddress");
+        assertEq(a.sender, b.sender, "a.sender != b.sender");
+        assertEq(a.salt, b.salt, "a.salt != b.salt");
+        assertEq(a.callDepth, b.callDepth, "a.callDepth != b.callDepth");
+        assertEq(a.hasInitializer, b.hasInitializer, "a.hasInitializer != b.hasInitializer");
+        assertEq(a.initializer, b.initializer, "a.initializer != b.initializer");
+    }
+
+    function _inpectContext(Context memory expected, InspectContext inspector, uint256 expectedBalance) private view {
+        (Context memory ctx, bool initialized, bytes memory initializer) = inspector.context();
+        assertEq(address(inspector), expected.contractAddress, "address(inspector) != expected.contractAddress");
+        assertEq(address(inspector).balance, expectedBalance, "address(inspector).balance != expected_balance");
+        assertEq(ctx.initializer, initializer);
+        assertEq(ctx.hasInitializer, initialized);
+        assertEq(ctx, expected);
     }
 
     function _testAccount(uint256 balance) private returns (address account) {
@@ -78,13 +105,93 @@ contract SingletonFactoryTest is Test {
         deployed.initialize();
     }
 
-    // function test_Increment() public {
-    //     address sender = _testAccount();
-    //     assertEq(counter.number(), 1);
-    // }
+    function test_fuzzCreate2(uint256 salt, bytes calldata init) external {
+        {
+            // we assume the initializer is not the `context()` selector
+            bytes4 selector;
+            assembly {
+                selector := shl(224, calldataload(sub(init.offset, 28)))
+            }
+            vm.assume(selector != InspectContext.context.selector);
+        }
+        address sender = _testAccount(100 ether);
+        bytes memory initCode = abi.encodePacked(type(InspectContext).creationCode, abi.encode(address(factory)));
+        vm.startPrank(sender, sender);
 
-    // function testFuzz_SetNumber(uint256 x) public {
-    //     counter.setNumber(x);
-    //     assertEq(counter.number(), x);
-    // }
+        Context memory ctx = Context({
+            sender: sender,
+            contractAddress: create2addr(salt, initCode),
+            callDepth: 0,
+            hasInitializer: false,
+            initializer: hex"",
+            salt: salt
+        });
+        InspectContext inspector;
+        uint256 snapshotId = vm.snapshot();
+
+        // Test `create3(uint256,bytes)`
+        inspector = InspectContext(payable(factory.create2(salt, initCode)));
+        _inpectContext(ctx, inspector, 0);
+
+        // Test `create3(uint256,bytes)` with value
+        vm.revertTo(snapshotId);
+        inspector = InspectContext(payable(factory.create2{value: 1 ether}(salt, initCode)));
+        _inpectContext(ctx, inspector, 1 ether);
+
+        // Test `create3(uint256,bytes,bytes)`
+        vm.revertTo(snapshotId);
+        ctx.hasInitializer = true;
+        ctx.initializer = init;
+        inspector = InspectContext(payable(factory.create2(salt, initCode, ctx.initializer)));
+        _inpectContext(ctx, inspector, 0);
+
+        // Test `create3(uint256,bytes,bytes)` with value
+        vm.revertTo(snapshotId);
+        inspector = InspectContext(payable(factory.create2{value: 1 ether}(salt, initCode, ctx.initializer)));
+        _inpectContext(ctx, inspector, 1 ether);
+    }
+
+    function test_fuzzCreate3(uint256 salt, bytes calldata init) external {
+        bytes4 selector;
+        assembly {
+            selector := shl(224, calldataload(sub(init.offset, 28)))
+        }
+        // we assume the initializer is not the `context()` selector
+        vm.assume(selector != InspectContext.context.selector);
+        address sender = _testAccount(100 ether);
+        bytes memory initCode = abi.encodePacked(type(InspectContext).creationCode, abi.encode(address(factory)));
+        vm.startPrank(sender, sender);
+
+        Context memory ctx = Context({
+            sender: sender,
+            contractAddress: create3addr(salt),
+            callDepth: 0,
+            hasInitializer: false,
+            initializer: hex"",
+            salt: salt
+        });
+        InspectContext inspector;
+        uint256 snapshotId = vm.snapshot();
+
+        // Test `create3(uint256,bytes)`
+        inspector = InspectContext(payable(factory.create3(salt, initCode)));
+        _inpectContext(ctx, inspector, 0);
+
+        // Test `create3(uint256,bytes)` with value
+        vm.revertTo(snapshotId);
+        inspector = InspectContext(payable(factory.create3{value: 1 ether}(salt, initCode)));
+        _inpectContext(ctx, inspector, 1 ether);
+
+        // Test `create3(uint256,bytes,bytes)`
+        vm.revertTo(snapshotId);
+        ctx.hasInitializer = true;
+        ctx.initializer = init;
+        inspector = InspectContext(payable(factory.create3(salt, initCode, ctx.initializer)));
+        _inpectContext(ctx, inspector, 0);
+
+        // Test `create3(uint256,bytes,bytes)` with value
+        vm.revertTo(snapshotId);
+        inspector = InspectContext(payable(factory.create3{value: 1 ether}(salt, initCode, ctx.initializer)));
+        _inpectContext(ctx, inspector, 1 ether);
+    }
 }

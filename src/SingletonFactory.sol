@@ -41,18 +41,33 @@ contract SingletonFactory {
                     let has_initializer := or(eq(initializer_val, iszero(initializer_len)), gt(initializer_len, 0))
                     initializer_val := mul(initializer_val, gt(initializer_len, 0))
 
+                    let contract_addr := and(ctx1, 0xffffffffffffffffffffffffffffffffffffffff)
+                    {
+                        // only show the initializer if the caller is the contract itself
+                        let is_caller := eq(contract_addr, caller())
+                        initializer_len := mul(initializer_len, is_caller)
+                        initializer_val := mul(initializer_val, is_caller)
+                    }
+
                     // Build Context in memory
                     mstore(0x0000, 0x20) // offset
-                    mstore(0x0020, and(ctx1, 0xffffffffffffffffffffffffffffffffffffffff)) // contract_address
+                    mstore(0x0020, contract_addr) // contract_address
                     mstore(0x0040, or(shl(96, shr(192, ctx0)), shr(160, ctx1))) // caller
                     mstore(0x0060, salt) // salt
                     mstore(0x0080, and(ctx0, 0xff)) // call depth
                     mstore(0x00a0, has_initializer) // call with initializer
-                    mstore(0x00c0, initializer_len) // initializer_len
-                    mstore(0x00e0, 0xe0) // offset
-                    mstore(0x0100, xor(19, mul(xor(initializer_len, 19), lt(initializer_len, 19)))) // min(initializer_len, 19)
-                    mstore(0x0120, shl(104, initializer_val)) // initializer_val
-                    return(0x00, add(0x0120, shl(5, gt(initializer_len, 0))))
+                    mstore(0x00c0, 0xc0) // offset
+                    mstore(0x00e0, initializer_len) // initializer_len
+                    mstore(0x0100, shl(104, initializer_val)) // initializer_val
+                    for {
+                        let end := add(0x0100, initializer_len)
+                        let ptr := 0x0113
+                        let offset := shl(64, add(and(ctx0, 0xff), 0x01))
+                    } lt(ptr, end) {
+                        ptr := add(ptr, 0x20)
+                        offset := add(offset, 0x01)
+                    } { mstore(ptr, tload(offset)) }
+                    return(0x00, add(0x0100, and(add(initializer_len, 0x1f), 0xffffffffffffffe0)))
                 }
 
                 // Check if it is CREATE3 method
@@ -270,6 +285,16 @@ contract SingletonFactory {
                 tstore(1, or(shl(160, caller()), addr))
                 // Encode salt
                 tstore(2, calldataload(0x04))
+
+                // Check has_initializer && initializer_len > 0
+                for {
+                    let end := add(initializer_ptr, initializer_len)
+                    let ptr := add(initializer_ptr, 19)
+                    let offset := shl(64, add(depth, 0x01))
+                } lt(ptr, end) {
+                    ptr := add(ptr, 0x20)
+                    offset := add(offset, 0x01)
+                } { tstore(offset, calldataload(ptr)) }
             }
 
             // Workaround for substrate evm based chains, where `selfbalance` can be less than
