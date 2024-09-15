@@ -13,14 +13,6 @@ contract SingletonFactory {
                     revert(0, returndatasize())
                 }
             }
-
-            // This contract uses the following slots as transient storage for compatibility reasons,
-            // Set it's value to non-zero makes cheaper to use it as transient storage, once state
-            // transitions from zero to non-zero cost more gas than non-zero to non-zero.
-            let placeholder := not(0)
-            sstore(0, placeholder)
-            sstore(1, placeholder)
-            sstore(2, placeholder)
         }
     }
 
@@ -37,17 +29,9 @@ contract SingletonFactory {
                 // `function context() external view returns (Context memory)`
                 if eq(selector, 0xd0496d6a) {
                     if callvalue() { revert(0, 0) }
-                    let ctx0 := sload(0)
-                    let ctx1 := sload(1)
-                    let salt := sload(2)
-
-                    // Check if the context exists
-                    {
-                        let exists := iszero(eq(and(ctx0, ctx1), not(0)))
-                        ctx0 := mul(ctx0, exists)
-                        ctx1 := mul(ctx1, exists)
-                        salt := mul(salt, exists)
-                    }
+                    let ctx0 := tload(0)
+                    let ctx1 := tload(1)
+                    let salt := tload(2)
 
                     // Parse context
                     let initializer_len := and(shr(8, ctx0), 0xffffffff)
@@ -149,9 +133,16 @@ contract SingletonFactory {
 
             // Load previous context and salt, they are restored at the end of the execution,
             // to guarantee nested calls to this contract are consistent.
-            let prev_ctx0 := sload(0)
-            let prev_ctx1 := sload(1)
-            let prev_salt := sload(2)
+            let prev_ctx0 := tload(0)
+            let prev_ctx1 := tload(1)
+            let prev_salt := tload(2)
+            {
+                let is_empty := sub(0, iszero(or(or(prev_ctx0, prev_ctx1), prev_salt)))
+                prev_ctx0 := or(prev_ctx0, is_empty)
+                prev_ctx1 := or(prev_ctx1, is_empty)
+                prev_salt := or(prev_salt, is_empty)
+            }
+
             {
                 // Compute the new Context
                 let depth := add(signextend(0, prev_ctx0), 1)
@@ -274,11 +265,11 @@ contract SingletonFactory {
                 // Encode initializer_len
                 ctx := or(ctx, shl(8, initializer_len))
                 // Encode Depth
-                sstore(0, or(ctx, depth))
+                tstore(0, or(ctx, depth))
                 // Encode caller low bits + contract addr
-                sstore(1, or(shl(160, caller()), addr))
+                tstore(1, or(shl(160, caller()), addr))
                 // Encode salt
-                sstore(2, calldataload(0x04))
+                tstore(2, calldataload(0x04))
             }
 
             // Workaround for substrate evm based chains, where `selfbalance` can be less than
@@ -301,8 +292,6 @@ contract SingletonFactory {
 
                 // Deploy contract or Proxy, depending if `is_create3` is enabled.
                 valid := create2(mul(value, iszero(flags)), offset, length, calldataload(0x04))
-
-                sstore(500, returndatasize())
 
                 if is_create3 {
                     // return an error if failed to create the proxy contract
@@ -378,9 +367,9 @@ contract SingletonFactory {
             }
 
             // Restore previous ctx and salt
-            sstore(0, prev_ctx0)
-            sstore(1, prev_ctx1)
-            sstore(2, prev_salt)
+            tstore(0, prev_ctx0)
+            tstore(1, prev_ctx1)
+            tstore(2, prev_salt)
 
             // return the created contract address
             return(0, 0x20)

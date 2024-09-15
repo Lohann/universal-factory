@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.27;
 
 import {Test, console} from "forge-std/Test.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
@@ -67,10 +67,10 @@ contract SingletonFactoryTest is Test {
             vm.expectRevert(expectRevertMessage);
             factory.create2(salt, initCode, initializer);
         }
+        // console.logBytes(abi.encodeWithSignature("create2(uint256,bytes,bytes)", salt, initCode, initializer));
 
         // Should work if value is sent.
-        MockContract deployed =
-            MockContract(factory.create2{value: 1}(salt, initCode, abi.encodeCall(MockContract.initialize, ())));
+        MockContract deployed = MockContract(factory.create2{value: 1}(salt, initCode, initializer));
         assertEq(address(deployed), create2addr(salt, initCode));
 
         // Cannot initialize manually.
