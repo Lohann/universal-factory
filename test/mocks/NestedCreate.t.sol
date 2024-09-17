@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {VmSafe} from "forge-std/Vm.sol";
-import {Test, console} from "forge-std/Test.sol";
+import {console} from "forge-std/console.sol";
 import {ISingletonFactory, Context} from "../../src/ISingletonFactory.sol";
 import {SingletonFactory} from "../../src/SingletonFactory.sol";
 
@@ -12,12 +12,13 @@ contract NestedCreate {
     ISingletonFactory private immutable FACTORY;
     Context private _ctx;
     uint256 private _constructorCallValue;
-    bool private _initialized;
+    bool private _validated;
     NestedCreate private _child;
 
     constructor(ISingletonFactory factory) payable {
         FACTORY = factory;
         Context memory ctx = factory.context();
+        require(ctx.contractAddress == address(this), "Can only be created by `SingletonFactory`");
         console.log("       address(this):", address(this));
         console.log(" ctx.contractAddress:", ctx.contractAddress);
         console.log("          ctx.sender:", ctx.sender);
@@ -28,59 +29,63 @@ contract NestedCreate {
         console.log("            ctx.salt:", VM.toString(bytes32(ctx.salt)));
         console.log("            ctx.data:", ctx.data.length);
         console.log("");
-        // console.log("            ctx.data:", VM.toString(ctx.data));
 
         if (ctx.hasCallback) {
+            require(ctx.callbackSelector == NestedCreate.validateContext.selector, "invalid callback selector");
             require(msg.value == 0, "cannot send value to constructor when using callback");
         }
-        require(ctx.data.length == 0 || ctx.data.length > 32, "invalid ctx.data length");
+        require(ctx.data.length >= 32, "invalid ctx.data length");
         _constructorCallValue = msg.value;
         _ctx = ctx;
-        _initialized = false;
-        if (ctx.data.length > 0) {
-            _child = NestedCreate(payable(_create(address(factory), ctx.data)));
-        }
+        _validated = false;
+        _child = NestedCreate(payable(_create(address(factory), ctx.data)));
     }
 
     function _create(address factory, bytes memory data) private returns (address) {
-        (uint256 callDepth, bytes memory callData) = abi.decode(data, (uint8, bytes));
-        require(callDepth == _ctx.callDepth, "callDepth != _ctx.callDepth");
-        if (callData.length > 0) {
-            (bool success, bytes memory result) = factory.call(callData);
-            if (!success) {
-                console.log("             error:", VM.toString(result));
-                assembly {
-                    revert(add(result, 0x20), mload(result))
+        uint256[] memory depthArray = abi.decode(data, (uint256[]));
+        if (depthArray.length > 0) {
+            uint256 depth = depthArray[depthArray.length - 1];
+            require(depth == _ctx.callDepth, "depth != _ctx.callDepth");
+
+            // Remove the last element from `depthArray`
+            assembly {
+                mstore(depthArray, sub(mload(depthArray), 1))
+            }
+
+            // Copy creation code to memory
+            bytes memory creationCode;
+            assembly {
+                creationCode := mload(0x40)
+                mstore(creationCode, codesize())
+                codecopy(add(creationCode, 0x20), 0, codesize())
+                {
+                    let offset := add(creationCode, add(0x20, codesize()))
+                    offset := and(add(offset, 0x1f), 0xffffffffffffffe0)
+                    mstore(0x40, offset)
                 }
             }
-            return abi.decode(result, (address));
+            uint256 salt = _ctx.salt + 0x0101010101010101010101010101010101010101010101010101010101010101;
+            return ISingletonFactory(factory).create2(salt, creationCode, abi.encode(depthArray));
         }
         return address(0);
     }
 
     function context() external view returns (Context memory, bool, NestedCreate) {
         require(msg.sender != address(FACTORY), "factory cannot call context");
-        require(_initialized == _ctx.hasCallback, "not initialized");
-        return (_ctx, _initialized, _child);
+        return (_ctx, _validated, _child);
     }
 
-    fallback() external payable {
-        require(msg.sender == address(FACTORY), "only factory can call fallback");
-        require(_initialized == false, "already initialized");
-        require(_ctx.hasCallback, "no callback expected");
-        _initialized = true;
-        if (_ctx.data.length > 0) {
-            _child = NestedCreate(payable(_create(address(FACTORY), _ctx.data)));
-        }
-    }
-
-    receive() external payable {
-        require(msg.sender == address(FACTORY), "only factory can call fallback");
-        require(_initialized == false, "already initialized");
-        require(_ctx.hasCallback, "no callback expected");
-        _initialized = true;
-        if (_ctx.data.length > 0) {
-            _child = NestedCreate(payable(_create(address(FACTORY), _ctx.data)));
-        }
+    function validateContext() external {
+        require(msg.sender == address(FACTORY), "only the SingletonFactory can call this method");
+        require(_validated == false, "already validated");
+        Context memory ctx = FACTORY.context();
+        require(ctx.contractAddress == address(this), "address mismatch");
+        require(ctx.sender == _ctx.sender, "sender mismatch");
+        require(ctx.salt == _ctx.salt, "salt mismatch");
+        require(ctx.callDepth == _ctx.callDepth, "call depth mismatch");
+        require(ctx.hasCallback == _ctx.hasCallback, "has callback mismatch");
+        require(ctx.callbackSelector == _ctx.callbackSelector, "callback selector mismatch");
+        require(keccak256(ctx.data) == keccak256(_ctx.data), "data mismatch");
+        _validated = true;
     }
 }

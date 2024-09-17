@@ -20,10 +20,10 @@ via_ir = true
 ###############
 # EVM options #
 ###############
-# gas_limit = 30000000
+gas_limit = 30000000
 gas_price = 1
 block_base_fee_per_gas = 0
-# block_gas_limit = 30000000
+block_gas_limit = 30000000
 
 #####################
 # optimizer details #

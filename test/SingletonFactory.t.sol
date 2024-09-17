@@ -205,13 +205,16 @@ contract SingletonFactoryTest is Test {
         _inpectContext(ctx, inspector, 1 ether);
     }
 
+    /**
+     * Test the `context()` when calling the `SingletonFactory` from inside an created contract.
+     */
     function test_neastedCreate2() external {
         address sender = _testAccount(100_000 ether);
         bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(factory)));
         bytes32 codeHash = keccak256(initCode);
         vm.startPrank(sender, sender);
 
-        uint256 maxDepth = 16;
+        uint256 maxDepth = 254;
         Context memory ctx;
         Context[] memory ctxArray = new Context[](maxDepth);
         for (uint256 i = 0; i < maxDepth; i++) {
@@ -228,19 +231,34 @@ contract SingletonFactoryTest is Test {
                 data: hex""
             });
         }
-        for (uint256 i = maxDepth - 1; i > 0; i--) {
-            Context memory parent = ctxArray[i];
-            ctx = ctxArray[i - 1];
-            ctx.data = abi.encode(
-                ctx.callDepth,
-                abi.encodeWithSignature("create2(uint256,bytes,bytes)", parent.salt, initCode, parent.data)
-            );
+
+        // Prepare the data for the child contracts.
+        uint256[] memory depthArray = new uint256[](maxDepth);
+        for (uint256 i = 0; i < depthArray.length; i++) {
+            depthArray[i] = maxDepth - i;
+        }
+        // emit log_array(depthArray);
+        for (uint256 i = 0; i < maxDepth; i++) {
+            assembly {
+                mstore(depthArray, sub(maxDepth, i))
+            }
+            // emit log_named_array(vm.toString(i), depthArray);
+            // Context memory parent = ctxArray[i];
+            ctx = ctxArray[i];
+            ctx.data = abi.encode(depthArray);
         }
 
+        // Stop gas metering otherwise the following call fails with `EvmError: OutOfGas`.
+        vm.pauseGasMetering();
         // Deploy the contract
         NestedCreate deployed = NestedCreate(payable(factory.create2(ctxArray[0].salt, initCode, ctxArray[0].data)));
+        vm.resumeGasMetering();
 
         // Check the context of the child contracts.
+        uint256 freeMemoryPtr;
+        assembly {
+            freeMemoryPtr := mload(0x40)
+        }
         for (uint256 i = 0; i < (maxDepth - 1); i++) {
             require(address(deployed) != address(0), "deployed == address(0)");
             require(address(deployed).code.length > 0, "deployed.code.length == 0");
@@ -248,6 +266,13 @@ contract SingletonFactoryTest is Test {
             assertEq(actualCtx, ctxArray[i]);
             assertEq(initialized, false);
             deployed = child;
+
+            // Reset memory to avoid `EvmError: MemoryOOG` error.
+            assembly {
+                let length := sub(mload(0x40), freeMemoryPtr)
+                calldatacopy(freeMemoryPtr, calldatasize(), length)
+                mstore(0x40, freeMemoryPtr)
+            }
         }
     }
 }
