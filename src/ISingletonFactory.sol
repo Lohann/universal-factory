@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.27;
 
+enum CreateKind {
+    CREATE2,
+    CREATE3
+}
+
 struct Context {
     address contractAddress;
     address sender;
-    uint256 salt;
     uint8 callDepth;
-    bool hasInitializer;
-    bytes initializer;
+    CreateKind kind;
+    bool hasCallback;
+    bytes4 callbackSelector;
+    uint256 salt;
+    bytes data;
 }
 
 interface ISingletonFactory {
@@ -42,12 +49,10 @@ interface ISingletonFactory {
     error ReservedInitCode();
 
     /**
-     * @dev The previous context is invalid.
-     * This only happens when calling this contract using `delegatecall`, probably because this
-     * contract expects the slots 0, 1 and 2 to be set to `type(uint256).max`, once they are used
-     * as transient storage for the call context.
+     * @dev Maximum call depth of 256 exceeded.
+     * OBS: probably impossible to reach this limit, due EIP-150 `all but one 64th`.
      */
-    error PreviousContextInvalid(address, address, uint256, uint8, bool, uint32, bytes19);
+    error CallDepthOverflow();
 
     /**
      * Creates an contract at a deterministic address, the final address is derived from the
@@ -69,9 +74,24 @@ interface ISingletonFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
-     * @param params callback called after create the contract, this field doesn't affect the resulting address.
+     * @param data data that will be available for the contract at `ctx.data`.
      */
-    function create2(uint256 salt, bytes calldata creationCode, bytes calldata params)
+    function create2(uint256 salt, bytes calldata creationCode, bytes calldata data)
+        external
+        payable
+        returns (address);
+
+    /**
+     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
+     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
+     * `initializerSlice` and `initializerLength` fields.
+     *
+     * @param salt Salt of the contract creation, this value affect the resulting address.
+     * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
+     * @param data data that will be available for the contract at `ctx.data`.
+     * @param callback callback called after create the contract, this field doesn't affect the resulting address.
+     */
+    function create2(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
         external
         payable
         returns (address);
@@ -100,6 +120,21 @@ interface ISingletonFactory {
      * @param params callback called after create the contract, this value doesn't affect the resulting address.
      */
     function create3(uint256 salt, bytes calldata creationCode, bytes calldata params)
+        external
+        payable
+        returns (address);
+
+    /**
+     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
+     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
+     * `initializerSlice` and `initializerLength` fields.
+     *
+     * @param salt Salt of the contract creation, this value affect the resulting address.
+     * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
+     * @param params callback called after create the contract, this value doesn't affect the resulting address.
+     * @param callback callback called after create the contract, this field doesn't affect the resulting address.
+     */
+    function create3(uint256 salt, bytes calldata creationCode, bytes calldata params, bytes calldata callback)
         external
         payable
         returns (address);

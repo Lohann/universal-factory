@@ -26,6 +26,15 @@ contract SingletonFactory {
             {
                 let selector := shr(0xe0, calldataload(0))
 
+                if eq(selector, 0xdeadbeef) {
+                    if callvalue() { revert(0, 0) }
+                    mstore(0x00, tload(0))
+                    mstore(0x20, tload(1))
+                    mstore(0x40, tload(2))
+                    mstore(0x60, tload(shl(64, 1)))
+                    return(0x00, 0x80)
+                }
+
                 // `function context() external view returns (Context memory)`
                 if eq(selector, 0xd0496d6a) {
                     if callvalue() { revert(0, 0) }
@@ -33,59 +42,111 @@ contract SingletonFactory {
                     let ctx1 := tload(1)
                     let salt := tload(2)
 
-                    // Parse context
-                    let initializer_len := and(shr(8, ctx0), 0xffffffff)
-                    let initializer_val := and(shr(40, ctx0), 0xffffffffffffffffffffffffffffffffffffff)
+                    // if iszero(depth) {
+                    //     mstore(0, 0xdeadbeefbabebabe)
+                    //     revert(0, 0x20)
+                    // }
+                    // {
+                    //     let has_context := gt(depth, 0)
+                    //     ctx0 := mul(ctx0, has_context)
+                    //     ctx1 := mul(ctx1, has_context)
+                    //     salt := mul(salt, has_context)
+                    // }
 
-                    // An empty initializer is encoded encoded as zero `initializer_len` and non-zero `initializer_val`.
-                    let has_initializer := or(eq(initializer_val, iszero(initializer_len)), gt(initializer_len, 0))
-                    initializer_val := mul(initializer_val, gt(initializer_len, 0))
+                    //                         Storage Layout
+                    // | 32-bit |    160-bit   |  22-bit  | 2-bit |  32-bit  |  8-bit  |
+                    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                    // |  data  |   contract   | data len | flags | selector |  depth  |
+                    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                    // |       data      |                   sender                    |
+                    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                    // |                             salt                              |
+                    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-                    let contract_addr := and(ctx1, 0xffffffffffffffffffffffffffffffffffffffff)
-                    {
-                        // only show the initializer if the caller is the contract itself
-                        let is_caller := eq(contract_addr, caller())
-                        initializer_len := mul(initializer_len, is_caller)
-                        initializer_val := mul(initializer_val, is_caller)
-                    }
+                    // Decode `flags`.
+                    //   IS_CREATE3 := 0x04
+                    // HAS_CALLBACK := 0x02
+                    //   HAS_PARAMS := 0x01
+                    let depth := and(ctx0, 0xff)
+                    let callback_selector := shl(224, shr(8, ctx0))
+                    flags := and(shr(40, ctx0), 0x03)
+                    let data_len := and(shr(42, ctx0), 0x3fffff)
+                    let contract_addr := and(shr(64, ctx0), 0xffffffffffffffffffffffffffffffffffffffff)
+                    let data := or(shl(160, shr(160, ctx1)), shl(128, shr(224, ctx0)))
+                    let sender := and(ctx1, 0xffffffffffffffffffffffffffffffffffffffff)
 
-                    // Build Context in memory
+                    // {
+                    //     // only show the initializer if the caller is the contract itself
+                    //     let is_caller := eq(contract_addr, caller())
+                    //     data_len := mul(data_len, is_caller)
+                    //     data := mul(data, is_caller)
+                    // }
+
+                    // Store `Context` in memory following Solidity ABI encoding
                     mstore(0x0000, 0x20) // offset
                     mstore(0x0020, contract_addr) // contract_address
-                    mstore(0x0040, or(shl(96, shr(192, ctx0)), shr(160, ctx1))) // caller
-                    mstore(0x0060, salt) // salt
-                    mstore(0x0080, and(ctx0, 0xff)) // call depth
-                    mstore(0x00a0, has_initializer) // call with initializer
-                    mstore(0x00c0, 0xc0) // offset
-                    mstore(0x00e0, initializer_len) // initializer_len
-                    mstore(0x0100, shl(104, initializer_val)) // initializer_val
+                    mstore(0x0040, sender) // sender
+                    mstore(0x0060, depth) // call depth
+                    mstore(0x0080, shr(1, flags)) // kind (0 for CREATE2, 1 for CREATE3)
+                    mstore(0x00a0, and(1, flags)) // hasCallback
+                    mstore(0x00c0, callback_selector) // callbackSelector
+                    mstore(0x00e0, salt) // salt
+                    mstore(0x0100, 0x0100) // offset
+                    mstore(0x0120, data_len) // data_len
+                    mstore(0x0140, data) // initializer_val
+
+                    // return(0x00, 0x0200)
+
+                    // If `data.length > 16`, copy the remaining data to memory
                     for {
-                        let end := add(0x0100, initializer_len)
-                        let ptr := 0x0113
-                        let offset := shl(64, add(and(ctx0, 0xff), 0x01))
+                        let end := add(0x0140, data_len)
+                        let ptr := 0x150
+                        let offset := shl(64, depth)
                     } lt(ptr, end) {
                         ptr := add(ptr, 0x20)
                         offset := add(offset, 0x01)
                     } { mstore(ptr, tload(offset)) }
-                    return(0x00, add(0x0100, and(add(initializer_len, 0x1f), 0xffffffffffffffe0)))
+
+                    // return(0x00, 0x160)
+                    return(0x00, add(0x0140, and(add(data_len, 0x1f), 0xffffffffffffffe0)))
                 }
 
                 // Check if it is CREATE3 method
                 // - function create3(uint256 salt, bytes calldata creationCode)
-                // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata initializer)
-                let is_create3 := or(eq(selector, 0x53ca4842), eq(selector, 0xb5164ce9))
+                // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata data)
+                // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
+                // let is_create3 := or(or(eq(selector, 0x53ca4842), eq(selector, 0xb5164ce9)), eq(selector, 0x1f7a56c0))
 
-                // Check seletor and minimal calldatasize when no initializer is provided
+                // Check if the method contains an `callback`
+                // - function create2(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
+                // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
+                let has_callback := or(eq(selector, 0xe45c31ee), eq(selector, 0x1f7a56c0))
+
+                // Check if the method contains an `data` but not an `callback`
+                // - function create2(uint256 salt, bytes calldata creationCode, bytes calldata data)
+                // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata data)
+                let has_data := or(has_callback, or(eq(selector, 0x579da0bf), eq(selector, 0xb5164ce9)))
+
+                // Check if the method doesn't contain an `data` or `callback`
                 // - function create2(uint256 salt, bytes calldata creationCode)
-                valid := and(eq(selector, xor(0xfe984079, mul(0xad52083b, is_create3))), gt(calldatasize(), 0x43))
+                // - function create3(uint256 salt, bytes calldata creationCode)
+                let is_simple := or(eq(selector, 0xfe984079), eq(selector, 0x53ca4842))
 
-                // Check seletor and minimal calldatasize when an initializer is provided
-                // - function create2(uint256 salt, bytes calldata creationCode, bytes calldata initializer)
-                let has_initializer := eq(selector, xor(0x579da0bf, mul(0xe28bec56, is_create3)))
-                valid := or(valid, and(has_initializer, gt(calldatasize(), 0x63)))
+                // Check if the selector is `create3(...)`
+                let is_create3 := or(or(eq(selector, 0x53ca4842), eq(selector, 0xb5164ce9)), eq(selector, 0x1f7a56c0))
 
-                // Set `deploy_proxy` and `has_initializer` flags
-                flags := or(shl(1, is_create3), has_initializer)
+                // Check if the selector is valid
+                valid := or(is_simple, has_data)
+                {
+                    // Check the minimal calldatasize when `data` or `callback` are provided
+                    let min_calldatasize := add(0x43, shl(5, add(has_data, has_callback)))
+                    valid := and(valid, gt(calldatasize(), min_calldatasize))
+                }
+
+                // Set `deploy_proxy`, `has_callback` and `has_data` flags
+                flags := is_create3
+                flags := or(shl(1, flags), has_callback)
+                flags := or(shl(1, flags), has_data)
             }
 
             let initializer_ptr
@@ -93,9 +154,13 @@ contract SingletonFactory {
             {
                 // initializer_ptr <= 0xffffffffffffffff
                 initializer_ptr := calldataload(0x44)
-                let valid_initializer := and(flags, lt(initializer_ptr, 0x010000000000000000))
-                // initializer_ptr >= 0x5f
-                valid_initializer := and(valid_initializer, gt(initializer_ptr, 0x5f))
+                let has_data := and(flags, 0x01)
+                let valid_initializer := and(has_data, lt(initializer_ptr, 0x010000000000000000))
+                // initializer_ptr > (has_callback ? 0x7f : 0x5f)
+                {
+                    let has_callback := shl(4, and(flags, 0x02))
+                    valid_initializer := and(valid_initializer, gt(initializer_ptr, add(has_callback, 0x5f)))
+                }
 
                 // calldatasize > (initializer_ptr + 0x1f)
                 initializer_ptr := add(initializer_ptr, 0x04)
@@ -111,23 +176,51 @@ contract SingletonFactory {
                     and(valid_initializer, iszero(gt(add(initializer_ptr, initializer_len), calldatasize())))
 
                 {
-                    let has_initializer := and(flags, 0x01)
                     // Set initializer_ptr and initializer_len to zero if there's no initializer
-                    valid_initializer := and(valid_initializer, has_initializer)
+                    valid_initializer := and(valid_initializer, has_data)
                     initializer_ptr := mul(initializer_ptr, valid_initializer)
                     initializer_len := mul(initializer_len, valid_initializer)
 
                     // If the call has no initializer, it is always valid.
-                    valid_initializer := or(valid_initializer, iszero(has_initializer))
+                    valid_initializer := or(valid_initializer, iszero(has_data))
                 }
                 valid := and(valid, valid_initializer)
+            }
+
+            {
+                // callback_ptr <= 0xffffffffffffffff
+                let callback_ptr := calldataload(0x64)
+                let has_callback := and(shr(1, flags), 1)
+                let valid_callback := and(has_callback, lt(callback_ptr, 0x010000000000000000))
+                // callback_ptr > 0x7f
+                valid_callback := and(valid_callback, gt(callback_ptr, 0x7f))
+
+                // calldatasize > (callback_ptr + 0x1f)
+                callback_ptr := add(callback_ptr, 0x04)
+                valid_callback := and(valid_callback, slt(add(callback_ptr, 0x1f), calldatasize()))
+
+                // callback_len <= 0xffffffffffffffff
+                let callback_len := calldataload(callback_ptr)
+                valid_callback := and(valid_callback, lt(callback_len, 0x010000000000000000))
+                callback_ptr := add(callback_ptr, 0x20)
+
+                // (callback_ptr + callback_len + 0x20) >= calldatasize
+                valid_callback := and(valid_callback, iszero(gt(add(callback_ptr, callback_len), calldatasize())))
+
+                // If the call has no callback, it is always valid.
+                valid_callback := or(valid_callback, iszero(has_callback))
+                valid := and(valid, valid_callback)
             }
 
             // creationcode_ptr <= 0xffffffffffffffff
             let creationcode_ptr := calldataload(0x24)
             valid := and(valid, lt(creationcode_ptr, 0x010000000000000000))
             // creationcode_ptr >= 0x3f
-            valid := and(valid, gt(creationcode_ptr, add(0x3f, shl(5, and(flags, 0x01)))))
+            {
+                let data_and_callback := and(flags, 0x03)
+                data_and_callback := xor(data_and_callback, shr(1, data_and_callback))
+                valid := and(valid, gt(creationcode_ptr, add(0x3f, shl(5, data_and_callback))))
+            }
 
             // calldatasize > (creationcode_ptr + 0x1f)
             creationcode_ptr := add(creationcode_ptr, 0x04)
@@ -152,49 +245,40 @@ contract SingletonFactory {
             let prev_ctx1 := tload(1)
             let prev_salt := tload(2)
             {
-                let is_empty := sub(0, iszero(or(or(prev_ctx0, prev_ctx1), prev_salt)))
-                prev_ctx0 := or(prev_ctx0, is_empty)
-                prev_ctx1 := or(prev_ctx1, is_empty)
-                prev_salt := or(prev_salt, is_empty)
-            }
-
-            {
                 // Compute the new Context
-                let depth := add(signextend(0, prev_ctx0), 1)
+                let depth := and(prev_ctx0, 0xff)
                 {
-                    // Decode previous `contractAddress` and `sender`.
-                    let addr := and(prev_ctx1, 0xffffffffffffffffffffffffffffffffffffffff)
-                    let sender := or(shl(96, shr(192, prev_ctx0)), shr(160, prev_ctx1))
+                    let first_call := iszero(or(prev_ctx0, or(prev_ctx1, prev_salt)))
+                    {
+                        // Decode previous `contractAddress`.
+                        let contract_addr := shr(64, prev_ctx0)
+                        // If this is not the first call, then `contractAddress` be non-zero, once is impossible
+                        // to create an contract with address zero.
+                        valid := or(gt(contract_addr, 0), first_call)
+                    }
 
-                    // Decode previous `initializer`, calls without initializer are encoded as zero bytes and zero length.
-                    let prev_initializer_len := and(shr(8, prev_ctx0), 0xffffffff)
-                    let prev_initializer_val := and(shr(40, prev_ctx0), 0xffffffffffffffffffffffffffffffffffffff)
-                    // An empty initializer is encoded encoded as zero `initializer_len` and non-zero `initializer_val`.
-                    let prev_has_initializer :=
-                        or(eq(prev_initializer_val, iszero(prev_initializer_len)), gt(prev_initializer_len, 0))
+                    {
+                        // Decode `data_len`.
+                        let prev_data_len := and(shr(42, prev_ctx0), 0x3fffff)
+                        // Decode first 20 bytes of `data[..20]`.
+                        let prev_data := or(shr(160, prev_ctx1), shl(32, shr(224, prev_ctx0)))
+                        // `prev_data` must fit in the `prev_data_len`
+                        let limit := shl(shl(3, prev_data_len), 1)
+                        limit := or(limit, shl(128, iszero(limit)))
+                        valid := or(valid, lt(prev_data, limit))
+                    }
 
-                    // Validate previous context
-                    valid := eq(and(and(prev_ctx0, prev_ctx1), prev_salt), not(0))
-                    // If any previous address exists, it must have been created by this contract.
-                    valid := or(valid, iszero(or(eq(addr, 0xffffffffffffffffffffffffffffffffffffffff), iszero(addr))))
-                    // Cannot do more than 127 nested calls, probably impossible due `EIP-150`.
-                    valid := and(valid, lt(depth, 0x7f))
-                    // Empty initializer MUST be encoded as `initializer_val = 1` and `initializer_len = 0`
-                    valid := and(valid, iszero(and(gt(prev_initializer_val, 0x01), iszero(prev_initializer_len))))
+                    // the `depth` must be less than 255, which is the maximum number of nested calls before overflow.
+                    // obs: probably impossible to reach this limit, due EIP-150 `all but one 64th`.
+                    valid := and(valid, lt(depth, 0xff))
 
                     if iszero(valid) {
-                        // revert PreviousContextInvalid(addr, sender, salt, depth, has_initializer, init_len, init_bytes)
-                        mstore(0x00, 0x69fa8359)
-                        mstore(0x20, addr) // contract
-                        mstore(0x40, sender) // sender
-                        mstore(0x60, prev_salt) // salt
-                        mstore(0x80, and(prev_ctx0, 0xff)) // depth
-                        mstore(0x80, prev_has_initializer) // has initializer
-                        mstore(0xc0, prev_initializer_len) // initializer len
-                        mstore(0xe0, prev_initializer_val) // initializer val
-                        revert(0x1c, 0x104)
+                        // revert CallDepthOverflow()
+                        mstore(0x00, 0xcc6c3e34)
+                        revert(0x1c, 0x04)
                     }
                 }
+                depth := add(depth, 0x01)
 
                 // Static Memory Layout:
                 // 0x00        -> final contract address
@@ -215,7 +299,7 @@ contract SingletonFactory {
                 mstore(0x20, calldataload(0x04))
                 // 0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b == keccak256(proxyCreationCode)
                 let creationcode_hash := keccak256(0x80, creationcode_len)
-                let is_create3 := shr(1, flags)
+                let is_create3 := shr(2, flags)
                 creationcode_hash :=
                     xor(
                         creationcode_hash,
@@ -270,27 +354,80 @@ contract SingletonFactory {
                 ////////////////////
                 // UPDATE CONTEXT //
                 ////////////////////
-                // Encode bytes19(initializer_ptr)
-                let has_initializer := and(flags, 0x01)
-                let ctx := mul(shr(104, calldataload(initializer_ptr)), has_initializer)
-                ctx := or(ctx, gt(has_initializer, initializer_len))
-                ctx := shl(40, ctx)
-                // Encode caller high bits
-                ctx := or(ctx, shl(192, shr(96, caller())))
-                // Encode initializer_len
-                ctx := or(ctx, shl(8, initializer_len))
-                // Encode Depth
-                tstore(0, or(ctx, depth))
-                // Encode caller low bits + contract addr
-                tstore(1, or(shl(160, caller()), addr))
-                // Encode salt
+                //                         Storage Layout
+                // | 32-bit |    160-bit   |  22-bit  | 2-bit |  32-bit  |  8-bit  |
+                // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                // |  data  |   contract   | data len | flags | selector |  depth  |
+                // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                // |       data      |                   sender                    |
+                // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                // |                             salt                              |
+                // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+                // Callback selector and depth (40 bits)
+
+                let ctx
+                // teste
+                // Encode `data[96..128]` (32 bits)
+                {
+                    let has_data := and(flags, 0x01)
+                    let data := shr(224, shl(96, calldataload(initializer_ptr)))
+                    data := mul(data, has_data)
+                    ctx := data
+                }
+                // Encode contractAddress (160 bits)
+                ctx := or(shl(160, ctx), addr)
+                // Encode data_len (22 bits)
+                ctx := or(shl(22, ctx), initializer_len)
+                // Encode flags (2 bits)
+                ctx := or(shl(2, ctx), shr(1, flags))
+                // Encode selector (32 bits)
+                {
+                    let callback_ptr := add(calldataload(0x64), 0x24)
+                    let callback_selector := shr(224, calldataload(callback_ptr))
+                    let has_callback := and(shr(1, flags), 1)
+                    callback_selector := mul(callback_selector, has_callback)
+                    ctx := or(shl(32, ctx), callback_selector)
+                }
+                // Encode depth (8 bits)
+                ctx := or(shl(8, ctx), depth)
+                // Store on the transient storage
+                tstore(0, ctx)
+                // Encode `data[..96]` (96 bit) + sender (160 bit)
+                tstore(1, or(shl(160, shr(160, calldataload(initializer_ptr))), caller()))
                 tstore(2, calldataload(0x04))
 
-                // Check has_initializer && initializer_len > 0
+                // teste fim
+                // // Encode depth (8 bits)
+                // ctx := depth
+                // // Encode selector (32 bits)
+                // {
+                //     let callback_ptr := add(calldataload(0x64), 0x24)
+                //     let callback_selector := and(shr(217, calldataload(callback_ptr)), 0x7fffffff80)
+                //     callback_selector := mul(callback_selector, and(flags, 0x02))
+                //     ctx := or(ctx, callback_selector)
+                // }
+                // // Encode flags (2 bits)
+                // ctx := or(ctx, shl(40, shr(1, flags)))
+                // // Encode data_len (22 bits)
+                // ctx := or(ctx, shl(42, initializer_len))
+                // // Encode contractAddress (160 bits)
+                // ctx := or(ctx, shl(64, addr))
+                // // Encode `data[96..128]` (32 bits)
+                // ctx := or(ctx, shl(224, shr(128, initializer_ptr)))
+                // // Encode Depth
+                // tstore(0, ctx)
+                // Encode `data[..96]` (96 bit) + sender (160 bit)
+                // ctx := shl(160, shr(160, initializer_ptr))
+                // tstore(1, or(ctx, caller()))
+                // Encode salt (256 bit)
+                // tstore(2, calldataload(0x04))
+
+                // Store `data` in the transient storage
                 for {
                     let end := add(initializer_ptr, initializer_len)
-                    let ptr := add(initializer_ptr, 19)
-                    let offset := shl(64, add(depth, 0x01))
+                    let ptr := add(initializer_ptr, 16)
+                    let offset := shl(64, depth)
                 } lt(ptr, end) {
                     ptr := add(ptr, 0x20)
                     offset := add(offset, 0x01)
@@ -311,7 +448,7 @@ contract SingletonFactory {
                 mstore(0x60, 0xfd5b60203d3d363d3d37363d34f080603357fd5b9052f3000000000000000000)
 
                 // If `create3` is enabled, use the proxy creation code, otherwise use provided `creationCode`
-                let is_create3 := shr(1, flags)
+                let is_create3 := shr(2, flags)
                 let offset := shr(is_create3, 0x80)
                 let length := xor(creationcode_len, mul(xor(55, creationcode_len), is_create3))
 
@@ -330,7 +467,7 @@ contract SingletonFactory {
                         call(
                             gas(),
                             valid,
-                            mul(value, eq(flags, 0x02)), // Check if the flag HAS_INITIALIZER is disabled
+                            mul(value, iszero(and(flags, 0x02))), // Check if the flag HAS_CALLBACK is disabled
                             0x80,
                             creationcode_len,
                             0x20,
@@ -356,17 +493,22 @@ contract SingletonFactory {
                 // 0x04a5b3ee -> Create2Failed()
                 // 0x08fde50a -> Create3Failed()
                 // 0x0c5856e4 -> 0x04a5b3ee ^ 0x08fde50a
-                let is_create3 := shr(1, flags)
+                let is_create3 := shr(2, flags)
                 mstore(0x00, xor(0x04a5b3ee, mul(0x0c5856e4, is_create3)))
                 revert(0x1c, 0x04)
             }
 
-            if and(flags, 0x01) {
+            // Call `callback` if provided
+            if and(flags, 0x02) {
+                let callback_ptr := add(calldataload(0x64), 0x04)
+                let callback_len := calldataload(callback_ptr)
+                callback_ptr := add(callback_ptr, 0x20)
+
                 // copy callback to memory
-                calldatacopy(0x80, initializer_ptr, initializer_len)
+                calldatacopy(0x80, callback_ptr, callback_len)
 
                 // Call initializer
-                if iszero(call(gas(), mload(0), value, 0x80, initializer_len, 0, 0)) {
+                if iszero(call(gas(), mload(0), value, 0x80, callback_len, 0, 0)) {
                     mstore(0x00, 0xe47a66c8)
                     // error offset
                     mstore(0x20, 0x20)
@@ -384,7 +526,7 @@ contract SingletonFactory {
             // self balance must be zero at the end of execution
             // Once on substrate evm chains the `selfbalance() <= callvalue()` this make
             // sure there's no remaining balance left in this contract.
-            if and(eq(and(prev_ctx0, prev_ctx1), not(0)), gt(selfbalance(), 0)) {
+            if and(iszero(or(or(prev_ctx0, prev_ctx1), prev_salt)), gt(selfbalance(), 0)) {
                 // revert InvalidSelfBalance(address(this).balance)
                 mstore(0x00, 0xff9334bf)
                 mstore(0x20, selfbalance())

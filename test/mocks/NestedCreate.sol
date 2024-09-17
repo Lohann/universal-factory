@@ -6,12 +6,12 @@ pragma solidity ^0.8.27;
 import {ISingletonFactory, Context} from "../../src/ISingletonFactory.sol";
 import {SingletonFactory} from "../../src/SingletonFactory.sol";
 
-contract InspectContext {
+contract NestedCreate {
     ISingletonFactory private immutable FACTORY;
     Context private _ctx;
     uint256 private _constructorCallValue;
     bool private _initialized;
-    bytes private _callback;
+    NestedCreate private _child;
 
     constructor(ISingletonFactory factory) payable {
         FACTORY = factory;
@@ -19,16 +19,31 @@ contract InspectContext {
         if (ctx.hasCallback) {
             require(msg.value == 0, "cannot send value to constructor when using callback");
         }
+        require(ctx.data.length == 0 || ctx.data.length > 4, "invalid ctx.data length");
         _constructorCallValue = msg.value;
         _ctx = ctx;
         _initialized = false;
-        _callback = new bytes(0);
+        if (!ctx.hasCallback && ctx.data.length > 0) {
+            _child = NestedCreate(payable(_create(address(factory), ctx.data)));
+        }
     }
 
-    function context() external view returns (Context memory, bool, bytes memory) {
+    function _create(address factory, bytes memory data) private returns (address) {
+        (uint8 callDepth, bytes memory callData) = abi.decode(data, (uint8, bytes));
+        require(callDepth == _ctx.callDepth, "callDepth != _ctx.callDepth");
+        (bool success, bytes memory result) = factory.call(callData);
+        if (!success) {
+            assembly {
+                revert(add(result, 0x20), mload(result))
+            }
+        }
+        return abi.decode(result, (address));
+    }
+
+    function context() external view returns (Context memory, bool, NestedCreate) {
         require(msg.sender != address(FACTORY), "factory cannot call context");
         require(_initialized == _ctx.hasCallback, "not initialized");
-        return (_ctx, _initialized, _callback);
+        return (_ctx, _initialized, _child);
     }
 
     fallback() external payable {
@@ -36,7 +51,9 @@ contract InspectContext {
         require(_initialized == false, "already initialized");
         require(_ctx.hasCallback, "no callback expected");
         _initialized = true;
-        _callback = msg.data;
+        if (_ctx.data.length > 0) {
+            _child = NestedCreate(payable(_create(address(FACTORY), _ctx.data)));
+        }
     }
 
     receive() external payable {
@@ -44,5 +61,8 @@ contract InspectContext {
         require(_initialized == false, "already initialized");
         require(_ctx.hasCallback, "no callback expected");
         _initialized = true;
+        if (_ctx.data.length > 0) {
+            _child = NestedCreate(payable(_create(address(FACTORY), _ctx.data)));
+        }
     }
 }
