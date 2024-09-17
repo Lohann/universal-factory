@@ -6,6 +6,7 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {ISingletonFactory, Context, CreateKind} from "../src/ISingletonFactory.sol";
 import {SingletonFactory} from "../src/SingletonFactory.sol";
 import {MockContract} from "./mocks/TestContract.t.sol";
+import {NestedCreate} from "./mocks/NestedCreate.t.sol";
 import {InspectContext} from "./mocks/InspectContext.t.sol";
 
 contract SingletonFactoryTest is Test {
@@ -19,10 +20,13 @@ contract SingletonFactoryTest is Test {
         vm.stopPrank();
     }
 
-    function create2addr(uint256 salt, bytes memory initCode) private view returns (address) {
-        bytes32 codeHash = keccak256(initCode);
+    function create2addr(uint256 salt, bytes32 codeHash) private view returns (address) {
         bytes32 create2Hash = keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), codeHash));
         return address(uint160(uint256(create2Hash)));
+    }
+
+    function create2addr(uint256 salt, bytes memory initCode) private view returns (address) {
+        return create2addr(salt, keccak256(initCode));
     }
 
     function create3addr(uint256 salt) private view returns (address) {
@@ -201,50 +205,49 @@ contract SingletonFactoryTest is Test {
         _inpectContext(ctx, inspector, 1 ether);
     }
 
-    function test_fuzzCreate2Depth(uint256 salt, bytes calldata init) external {
-        bytes4 selector;
-        assembly {
-            selector := shl(224, calldataload(sub(init.offset, 28)))
-        }
-        // we assume the initializer is not the `context()` selector
-        vm.assume(selector != InspectContext.context.selector);
-        address sender = _testAccount(100 ether);
-        bytes memory initCode = abi.encodePacked(type(InspectContext).creationCode, abi.encode(address(factory)));
+    function test_neastedCreate2() external {
+        address sender = _testAccount(100_000 ether);
+        bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(factory)));
+        bytes32 codeHash = keccak256(initCode);
         vm.startPrank(sender, sender);
 
-        Context memory ctx = Context({
-            contractAddress: create3addr(salt),
-            sender: sender,
-            callDepth: 1,
-            kind: CreateKind.CREATE3,
-            hasCallback: false,
-            callbackSelector: bytes4(0),
-            salt: salt,
-            data: hex""
-        });
-        InspectContext inspector;
-        uint256 snapshotId = vm.snapshot();
+        uint256 maxDepth = 16;
+        Context memory ctx;
+        Context[] memory ctxArray = new Context[](maxDepth);
+        for (uint256 i = 0; i < maxDepth; i++) {
+            uint256 depth = i + 1;
+            uint256 salt = 0x0101010101010101010101010101010101010101010101010101010101010101;
+            ctxArray[i] = Context({
+                contractAddress: create2addr(depth * salt, codeHash),
+                sender: i == 0 ? sender : ctxArray[i - 1].contractAddress,
+                callDepth: uint8(depth),
+                kind: CreateKind.CREATE2,
+                hasCallback: false,
+                callbackSelector: bytes4(0),
+                salt: depth * salt,
+                data: hex""
+            });
+        }
+        for (uint256 i = maxDepth - 1; i > 0; i--) {
+            Context memory parent = ctxArray[i];
+            ctx = ctxArray[i - 1];
+            ctx.data = abi.encode(
+                ctx.callDepth,
+                abi.encodeWithSignature("create2(uint256,bytes,bytes)", parent.salt, initCode, parent.data)
+            );
+        }
 
-        // Test `create3(uint256,bytes)`
-        inspector = InspectContext(payable(factory.create3(salt, initCode)));
-        _inpectContext(ctx, inspector, 0);
+        // Deploy the contract
+        NestedCreate deployed = NestedCreate(payable(factory.create2(ctxArray[0].salt, initCode, ctxArray[0].data)));
 
-        // Test `create3(uint256,bytes)` with value
-        vm.revertTo(snapshotId);
-        inspector = InspectContext(payable(factory.create3{value: 1 ether}(salt, initCode)));
-        _inpectContext(ctx, inspector, 1 ether);
-
-        // Test `create3(uint256,bytes,bytes)`
-        vm.revertTo(snapshotId);
-        ctx.hasCallback = true;
-        ctx.callbackSelector = selector;
-        ctx.data = init;
-        inspector = InspectContext(payable(factory.create3(salt, initCode, ctx.data, ctx.data)));
-        _inpectContext(ctx, inspector, 0);
-
-        // Test `create3(uint256,bytes,bytes)` with value
-        vm.revertTo(snapshotId);
-        inspector = InspectContext(payable(factory.create3{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
-        _inpectContext(ctx, inspector, 1 ether);
+        // Check the context of the child contracts.
+        for (uint256 i = 0; i < (maxDepth - 1); i++) {
+            require(address(deployed) != address(0), "deployed == address(0)");
+            require(address(deployed).code.length > 0, "deployed.code.length == 0");
+            (Context memory actualCtx, bool initialized, NestedCreate child) = deployed.context();
+            assertEq(actualCtx, ctxArray[i]);
+            assertEq(initialized, false);
+            deployed = child;
+        }
     }
 }

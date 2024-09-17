@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.27;
 
-// import {VmSafe} from "forge-std/Vm.sol";
-// import {Test, console} from "forge-std/Test.sol";
+import {VmSafe} from "forge-std/Vm.sol";
+import {Test, console} from "forge-std/Test.sol";
 import {ISingletonFactory, Context} from "../../src/ISingletonFactory.sol";
 import {SingletonFactory} from "../../src/SingletonFactory.sol";
 
 contract NestedCreate {
+    VmSafe internal constant VM = VmSafe(address(uint160(uint256(keccak256("hevm cheat code")))));
+
     ISingletonFactory private immutable FACTORY;
     Context private _ctx;
     uint256 private _constructorCallValue;
@@ -16,28 +18,44 @@ contract NestedCreate {
     constructor(ISingletonFactory factory) payable {
         FACTORY = factory;
         Context memory ctx = factory.context();
+        console.log("       address(this):", address(this));
+        console.log(" ctx.contractAddress:", ctx.contractAddress);
+        console.log("          ctx.sender:", ctx.sender);
+        console.log("       ctx.callDepth:", ctx.callDepth);
+        console.log("            ctx.kind:", uint256(ctx.kind));
+        console.log("     ctx.hasCallback:", ctx.hasCallback);
+        console.log("ctx.callbackSelector:", VM.toString(bytes32(ctx.callbackSelector)));
+        console.log("            ctx.salt:", VM.toString(bytes32(ctx.salt)));
+        console.log("            ctx.data:", ctx.data.length);
+        console.log("");
+        // console.log("            ctx.data:", VM.toString(ctx.data));
+
         if (ctx.hasCallback) {
             require(msg.value == 0, "cannot send value to constructor when using callback");
         }
-        require(ctx.data.length == 0 || ctx.data.length > 4, "invalid ctx.data length");
+        require(ctx.data.length == 0 || ctx.data.length > 32, "invalid ctx.data length");
         _constructorCallValue = msg.value;
         _ctx = ctx;
         _initialized = false;
-        if (!ctx.hasCallback && ctx.data.length > 0) {
+        if (ctx.data.length > 0) {
             _child = NestedCreate(payable(_create(address(factory), ctx.data)));
         }
     }
 
     function _create(address factory, bytes memory data) private returns (address) {
-        (uint8 callDepth, bytes memory callData) = abi.decode(data, (uint8, bytes));
+        (uint256 callDepth, bytes memory callData) = abi.decode(data, (uint8, bytes));
         require(callDepth == _ctx.callDepth, "callDepth != _ctx.callDepth");
-        (bool success, bytes memory result) = factory.call(callData);
-        if (!success) {
-            assembly {
-                revert(add(result, 0x20), mload(result))
+        if (callData.length > 0) {
+            (bool success, bytes memory result) = factory.call(callData);
+            if (!success) {
+                console.log("             error:", VM.toString(result));
+                assembly {
+                    revert(add(result, 0x20), mload(result))
+                }
             }
+            return abi.decode(result, (address));
         }
-        return abi.decode(result, (address));
+        return address(0);
     }
 
     function context() external view returns (Context memory, bool, NestedCreate) {

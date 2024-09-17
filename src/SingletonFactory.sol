@@ -363,11 +363,7 @@ contract SingletonFactory {
                 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
                 // |                             salt                              |
                 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-                // Callback selector and depth (40 bits)
-
                 let ctx
-                // teste
                 // Encode `data[96..128]` (32 bits)
                 {
                     let has_data := and(flags, 0x01)
@@ -396,32 +392,6 @@ contract SingletonFactory {
                 // Encode `data[..96]` (96 bit) + sender (160 bit)
                 tstore(1, or(shl(160, shr(160, calldataload(initializer_ptr))), caller()))
                 tstore(2, calldataload(0x04))
-
-                // teste fim
-                // // Encode depth (8 bits)
-                // ctx := depth
-                // // Encode selector (32 bits)
-                // {
-                //     let callback_ptr := add(calldataload(0x64), 0x24)
-                //     let callback_selector := and(shr(217, calldataload(callback_ptr)), 0x7fffffff80)
-                //     callback_selector := mul(callback_selector, and(flags, 0x02))
-                //     ctx := or(ctx, callback_selector)
-                // }
-                // // Encode flags (2 bits)
-                // ctx := or(ctx, shl(40, shr(1, flags)))
-                // // Encode data_len (22 bits)
-                // ctx := or(ctx, shl(42, initializer_len))
-                // // Encode contractAddress (160 bits)
-                // ctx := or(ctx, shl(64, addr))
-                // // Encode `data[96..128]` (32 bits)
-                // ctx := or(ctx, shl(224, shr(128, initializer_ptr)))
-                // // Encode Depth
-                // tstore(0, ctx)
-                // Encode `data[..96]` (96 bit) + sender (160 bit)
-                // ctx := shl(160, shr(160, initializer_ptr))
-                // tstore(1, or(ctx, caller()))
-                // Encode salt (256 bit)
-                // tstore(2, calldataload(0x04))
 
                 // Store `data` in the transient storage
                 for {
