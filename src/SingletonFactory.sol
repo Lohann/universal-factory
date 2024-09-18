@@ -59,6 +59,8 @@ contract SingletonFactory {
         assembly {
             // If the contracts calls itself, then is for check whether EIP-1153
             // transient storage is supported or not.
+            // This check is done dynamically for each call, because even if the EVM
+            // doesn't support this opcode right now, it may support it in the future.
             if eq(caller(), address()) { return(0, tload(address())) }
 
             // ------- FLAGS -------
@@ -69,7 +71,7 @@ contract SingletonFactory {
 
             // Check if this EVM supports EIP-1153 TRANSIENT STORAGE.
             // This check is done by calling itself.
-            let flags := staticcall(1000, address(), 0, 0, 0, 0)
+            let flags := staticcall(2000, address(), 0, 0, 0, 0)
 
             let valid
             {
@@ -129,9 +131,9 @@ contract SingletonFactory {
                     mstore(0x0120, data_len) // data_len
                     mstore(0x0140, data) // initializer_val
 
-                    // If `data.length > 16`, copy the remaining data to memory
                     switch flags
                     case 0 {
+                        // Copy `data[16..]` from storage to memory
                         for {
                             let end := add(0x0140, data_len)
                             let ptr := 0x150
@@ -142,6 +144,7 @@ contract SingletonFactory {
                         } { mstore(ptr, sload(offset)) }
                     }
                     default {
+                        // Copy `data[16..]` from transient storage to memory
                         for {
                             let end := add(0x0140, data_len)
                             let ptr := 0x150
