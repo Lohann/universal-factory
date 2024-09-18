@@ -34,38 +34,45 @@ contract NestedCreate {
             require(ctx.callbackSelector == NestedCreate.validateContext.selector, "invalid callback selector");
             require(msg.value == 0, "cannot send value to constructor when using callback");
         }
-        require(ctx.data.length >= 32, "invalid ctx.data length");
+        require(ctx.data.length >= 96, "invalid ctx.data length");
         _constructorCallValue = msg.value;
         _ctx = ctx;
         _validated = false;
-        _child = NestedCreate(payable(_create(address(factory), ctx.data)));
+        _child = NestedCreate(payable(_create(address(factory), ctx)));
     }
 
-    function _create(address factory, bytes memory data) private returns (address) {
-        uint256[] memory depthArray = abi.decode(data, (uint256[]));
+    function _create(address factory, Context memory ctx) private returns (address) {
+        uint256[] memory depthArray = abi.decode(ctx.data, (uint256[]));
+        require(depthArray.length > 0, "invalid depthArray");
+        uint256 depth = depthArray[depthArray.length - 1];
+        require(depth == ctx.callDepth, "depth != _ctx.callDepth");
+
+        // Remove the last element from `depthArray`
+        assembly {
+            mstore(depthArray, sub(mload(depthArray), 1))
+        }
+
         if (depthArray.length > 0) {
-            uint256 depth = depthArray[depthArray.length - 1];
-            require(depth == _ctx.callDepth, "depth != _ctx.callDepth");
-
-            // Remove the last element from `depthArray`
-            assembly {
-                mstore(depthArray, sub(mload(depthArray), 1))
-            }
-
             // Copy creation code to memory
-            bytes memory creationCode;
+            uint256 codeSize;
             assembly {
-                creationCode := mload(0x40)
-                mstore(creationCode, codesize())
-                codecopy(add(creationCode, 0x20), 0, codesize())
-                {
-                    let offset := add(creationCode, add(0x20, codesize()))
-                    offset := and(add(offset, 0x1f), 0xffffffffffffffe0)
-                    mstore(0x40, offset)
-                }
+                codeSize := codesize()
             }
-            uint256 salt = _ctx.salt + 0x0101010101010101010101010101010101010101010101010101010101010101;
-            return ISingletonFactory(factory).create2(salt, creationCode, abi.encode(depthArray));
+            bytes memory creationCode = new bytes(codeSize);
+            assembly {
+                codecopy(add(creationCode, 0x20), 0, codesize())
+            }
+            uint256 salt = ctx.salt + 0x0101010101010101010101010101010101010101010101010101010101010101;
+
+            address child;
+            if (ctx.hasCallback) {
+                child = ISingletonFactory(factory).create2(
+                    salt, creationCode, abi.encode(depthArray), abi.encodeCall(NestedCreate.validateContext, ())
+                );
+            } else {
+                child = ISingletonFactory(factory).create2(salt, creationCode, abi.encode(depthArray));
+            }
+            return child;
         }
         return address(0);
     }

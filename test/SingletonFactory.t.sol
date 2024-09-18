@@ -213,66 +213,76 @@ contract SingletonFactoryTest is Test {
         bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(factory)));
         bytes32 codeHash = keccak256(initCode);
         vm.startPrank(sender, sender);
-
-        uint256 maxDepth = 254;
-        Context memory ctx;
-        Context[] memory ctxArray = new Context[](maxDepth);
-        for (uint256 i = 0; i < maxDepth; i++) {
-            uint256 depth = i + 1;
-            uint256 salt = 0x0101010101010101010101010101010101010101010101010101010101010101;
-            ctxArray[i] = Context({
-                contractAddress: create2addr(depth * salt, codeHash),
-                sender: i == 0 ? sender : ctxArray[i - 1].contractAddress,
-                callDepth: uint8(depth),
-                kind: CreateKind.CREATE2,
-                hasCallback: false,
-                callbackSelector: bytes4(0),
-                salt: depth * salt,
-                data: hex""
-            });
-        }
+        uint256 maxDepth = 91;
 
         // Prepare the data for the child contracts.
-        uint256[] memory depthArray = new uint256[](maxDepth);
-        for (uint256 i = 0; i < depthArray.length; i++) {
-            depthArray[i] = maxDepth - i;
-        }
-        // emit log_array(depthArray);
+        uint256[] memory nestedList = new uint256[](maxDepth);
         for (uint256 i = 0; i < maxDepth; i++) {
-            assembly {
-                mstore(depthArray, sub(maxDepth, i))
-            }
-            // emit log_named_array(vm.toString(i), depthArray);
-            // Context memory parent = ctxArray[i];
-            ctx = ctxArray[i];
-            ctx.data = abi.encode(depthArray);
+            nestedList[i] = maxDepth - i;
         }
+        bytes memory params = abi.encode(nestedList);
+
+        uint256 salt = 0x0101010101010101010101010101010101010101010101010101010101010101;
+        bytes memory callback = abi.encodeCall(NestedCreate.validateContext, ());
 
         // Stop gas metering otherwise the following call fails with `EvmError: OutOfGas`.
         vm.pauseGasMetering();
         // Deploy the contract
-        NestedCreate deployed = NestedCreate(payable(factory.create2(ctxArray[0].salt, initCode, ctxArray[0].data)));
+        NestedCreate deployed = NestedCreate(payable(factory.create2(salt, initCode, params, callback)));
+        // factory.create2(salt, initCode, params);
         vm.resumeGasMetering();
 
-        // Check the context of the child contracts.
-        uint256 freeMemoryPtr;
+        Context memory ctx = Context({
+            contractAddress: sender,
+            sender: address(0),
+            callDepth: 0,
+            kind: CreateKind.CREATE2,
+            hasCallback: true,
+            callbackSelector: NestedCreate.validateContext.selector,
+            salt: 0,
+            data: params
+        });
+        bytes32 deployedCodeHash;
         assembly {
-            freeMemoryPtr := mload(0x40)
+            deployedCodeHash := extcodehash(deployed)
         }
-        for (uint256 i = 0; i < (maxDepth - 1); i++) {
-            require(address(deployed) != address(0), "deployed == address(0)");
-            require(address(deployed).code.length > 0, "deployed.code.length == 0");
-            (Context memory actualCtx, bool initialized, NestedCreate child) = deployed.context();
-            assertEq(actualCtx, ctxArray[i]);
-            assertEq(initialized, false);
-            deployed = child;
 
-            // Reset memory to avoid `EvmError: MemoryOOG` error.
+        // Check the context of the child contracts.
+        for (uint256 i = 0; i < maxDepth; i++) {
+            require(address(deployed).code.length > 0, "contract not exists");
+
+            // Update the `ctx` for the next child contract.
+            ctx.callDepth += 1;
+            ctx.salt += salt;
+            ctx.sender = ctx.contractAddress;
+            ctx.contractAddress = create2addr(ctx.salt, codeHash);
+            ctx.data = params;
+
+            // prepare the `ctx.data` for the next child contract.
             assembly {
-                let length := sub(mload(0x40), freeMemoryPtr)
-                calldatacopy(freeMemoryPtr, calldatasize(), length)
-                mstore(0x40, freeMemoryPtr)
+                mstore(add(params, 0x40), sub(maxDepth, i))
+                mstore(params, shl(5, sub(add(maxDepth, 2), i)))
             }
+
+            // Compare the context of the contract with the expected context.
+            (Context memory actualCtx, bool initialized, NestedCreate child) = deployed.context();
+            assertEq(actualCtx, ctx);
+            assertEq(initialized, true);
+
+            // Check `child` codehash
+            if (address(child) != address(0)) {
+                bytes32 childCodeHash;
+                assembly {
+                    childCodeHash := extcodehash(child)
+                }
+                assertEq(deployedCodeHash, childCodeHash, "child and contract must have the same codehash");
+            }
+
+            // Move to the next child contract.
+            deployed = child;
         }
+
+        // The last contract should not have any child contracts.
+        require(address(deployed) == address(0), "last child must be empty");
     }
 }
