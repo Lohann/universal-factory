@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.27;
 
+/**
+ *
+ */
 contract SingletonFactory {
-    constructor() {
+    constructor() payable {
         assembly {
             // If some balance is provided to this contract, refund the caller
             // As balance may be provided on substrate based chains as existential deposit,
@@ -13,109 +16,145 @@ contract SingletonFactory {
                     revert(0, returndatasize())
                 }
             }
+
+            //                         Storage Layout
+            // | 32-bit |    160-bit   |  22-bit  | 2-bit |  32-bit  |  8-bit  |
+            // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+            // |  data  |   contract   | data len | flags | selector |  depth  |
+            // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+            // |     data    |                     sender                      |
+            // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+            // |                             salt                              |
+            // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+            //
+            // If the EVM doesn't support EIP-1153 TRANSIENT STORAGE, then initialize the storage,
+            // because the transition from empty to non-empty cost more gas than the transition
+            // from non-empty to any, example:
+            // - zero to non-zero: 20000 gas
+            // - non-zero to non-zero: 2900 gas
+            // = non-zero to zero: 100 gas
+            //
+            // OBS: The storage is always restored to the initial state at the end of the execution.
+            let placeholder := not(0)
+            sstore(0, placeholder)
+            sstore(1, placeholder)
+            sstore(2, placeholder)
         }
     }
 
+    /**
+     * @dev This contract must be compatible with `shangai` and `cancun` hardforks, so the `EIP-1153` opcodes must
+     * only be used when the EVM supports it, to do accomplish that, this contract calls itself and check the
+     * `TSTORE` and `TLOAD` opcode support, this check is done dynamically in case the EVM supports it in the future.
+     *
+     * @notice inline assembly is used for 3 main reason:
+     * 1. Guarantee the opcode `MCOPY` isn't called, once it is only supported by `cancun`.
+     * 2. Guarantee an constant and predicatable gas cost, this contract heavily uses branchless code.
+     * 3. Optimized code, to reduce the gas cost of the contract.
+     *
+     * `Solidity` was chosen over `Yul` for portability and better developer experience, once currently you can't import
+     * Yul code in Solidity.
+     */
     fallback() external payable {
         assembly {
-            // HAS_INITIALIZER_FLAG = 0x01
-            //    DEPLOY_PROXY_FLAG = 0x02
+            // If the contracts calls itself, then is for check whether EIP-1153
+            // transient storage is supported or not.
+            if eq(caller(), address()) { return(0, tload(address())) }
 
-            let flags := 0
+            // ------- FLAGS -------
+            //        HAS_DATA = 0x01
+            //    HAS_CALLBACK = 0x02
+            //      IS_CREATE3 = 0x04
+            // SUPPORT_EIP1153 = 0x08
+
+            // Check if this EVM supports EIP-1153 TRANSIENT STORAGE.
+            // This check is done by calling itself.
+            let flags := staticcall(1000, address(), 0, 0, 0, 0)
+
             let valid
             {
                 let selector := shr(0xe0, calldataload(0))
 
-                if eq(selector, 0xdeadbeef) {
-                    if callvalue() { revert(0, 0) }
-                    mstore(0x00, tload(0))
-                    mstore(0x20, tload(1))
-                    mstore(0x40, tload(2))
-                    mstore(0x60, tload(shl(64, 1)))
-                    return(0x00, 0x80)
-                }
-
                 // `function context() external view returns (Context memory)`
                 if eq(selector, 0xd0496d6a) {
                     if callvalue() { revert(0, 0) }
-                    let ctx0 := tload(0)
-                    let ctx1 := tload(1)
-                    let salt := tload(2)
 
-                    // if iszero(depth) {
-                    //     mstore(0, 0xdeadbeefbabebabe)
-                    //     revert(0, 0x20)
-                    // }
-                    // {
-                    //     let has_context := gt(depth, 0)
-                    //     ctx0 := mul(ctx0, has_context)
-                    //     ctx1 := mul(ctx1, has_context)
-                    //     salt := mul(salt, has_context)
-                    // }
+                    let ctx0, ctx1, salt
+                    {
+                        switch flags
+                        case 0 {
+                            ctx0 := sload(0)
+                            ctx1 := sload(1)
+                            salt := sload(2)
+                            let has_context := iszero(eq(and(and(ctx0, ctx1), salt), not(0)))
+                            // let has_context := iszero(and(eq(ctx0, ctx1), eq(ctx1, salt)))
+                            // has_context := and(has_context, gt(and(ctx0, 0xff), 0))
+                            // let has_context := gt(and(ctx0, 0xff), 0)
+                            ctx0 := mul(ctx0, has_context)
+                            ctx1 := mul(ctx1, has_context)
+                            salt := mul(salt, has_context)
+                        }
+                        default {
+                            ctx0 := tload(0)
+                            ctx1 := tload(1)
+                            salt := tload(2)
+                            let has_context := gt(and(ctx0, 0xff), 0)
+                            ctx0 := mul(ctx0, has_context)
+                            ctx1 := mul(ctx1, has_context)
+                            salt := mul(salt, has_context)
+                        }
+                    }
 
-                    //                         Storage Layout
-                    // | 32-bit |    160-bit   |  22-bit  | 2-bit |  32-bit  |  8-bit  |
-                    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-                    // |  data  |   contract   | data len | flags | selector |  depth  |
-                    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-                    // |       data      |                   sender                    |
-                    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-                    // |                             salt                              |
-                    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-                    // Decode `flags`.
-                    //   IS_CREATE3 := 0x04
-                    // HAS_CALLBACK := 0x02
-                    //   HAS_PARAMS := 0x01
+                    // Decode `call_flags`.
+                    //   IS_CREATE3 := 0x02
+                    // HAS_CALLBACK := 0x01
                     let depth := and(ctx0, 0xff)
                     let callback_selector := shl(224, shr(8, ctx0))
-                    flags := and(shr(40, ctx0), 0x03)
+                    let call_flags := and(shr(40, ctx0), 0x03)
                     let data_len := and(shr(42, ctx0), 0x3fffff)
                     let contract_addr := and(shr(64, ctx0), 0xffffffffffffffffffffffffffffffffffffffff)
                     let data := or(shl(160, shr(160, ctx1)), shl(128, shr(224, ctx0)))
                     let sender := and(ctx1, 0xffffffffffffffffffffffffffffffffffffffff)
-
-                    // {
-                    //     // only show the initializer if the caller is the contract itself
-                    //     let is_caller := eq(contract_addr, caller())
-                    //     data_len := mul(data_len, is_caller)
-                    //     data := mul(data, is_caller)
-                    // }
 
                     // Store `Context` in memory following Solidity ABI encoding
                     mstore(0x0000, 0x20) // offset
                     mstore(0x0020, contract_addr) // contract_address
                     mstore(0x0040, sender) // sender
                     mstore(0x0060, depth) // call depth
-                    mstore(0x0080, shr(1, flags)) // kind (0 for CREATE2, 1 for CREATE3)
-                    mstore(0x00a0, and(1, flags)) // hasCallback
+                    mstore(0x0080, shr(1, call_flags)) // kind (0 for CREATE2, 1 for CREATE3)
+                    mstore(0x00a0, and(1, call_flags)) // hasCallback
                     mstore(0x00c0, callback_selector) // callbackSelector
                     mstore(0x00e0, salt) // salt
                     mstore(0x0100, 0x0100) // offset
                     mstore(0x0120, data_len) // data_len
                     mstore(0x0140, data) // initializer_val
 
-                    // return(0x00, 0x0200)
-
                     // If `data.length > 16`, copy the remaining data to memory
-                    for {
-                        let end := add(0x0140, data_len)
-                        let ptr := 0x150
-                        let offset := shl(64, depth)
-                    } lt(ptr, end) {
-                        ptr := add(ptr, 0x20)
-                        offset := add(offset, 0x01)
-                    } { mstore(ptr, tload(offset)) }
+                    switch flags
+                    case 0 {
+                        for {
+                            let end := add(0x0140, data_len)
+                            let ptr := 0x150
+                            let offset := shl(64, depth)
+                        } lt(ptr, end) {
+                            ptr := add(ptr, 0x20)
+                            offset := add(offset, 0x01)
+                        } { mstore(ptr, sload(offset)) }
+                    }
+                    default {
+                        for {
+                            let end := add(0x0140, data_len)
+                            let ptr := 0x150
+                            let offset := shl(64, depth)
+                        } lt(ptr, end) {
+                            ptr := add(ptr, 0x20)
+                            offset := add(offset, 0x01)
+                        } { mstore(ptr, tload(offset)) }
+                    }
 
                     // return(0x00, 0x160)
                     return(0x00, add(0x0140, and(add(data_len, 0x1f), 0xffffffffffffffe0)))
                 }
-
-                // Check if it is CREATE3 method
-                // - function create3(uint256 salt, bytes calldata creationCode)
-                // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata data)
-                // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
-                // let is_create3 := or(or(eq(selector, 0x53ca4842), eq(selector, 0xb5164ce9)), eq(selector, 0x1f7a56c0))
 
                 // Check if the method contains an `callback`
                 // - function create2(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
@@ -144,7 +183,7 @@ contract SingletonFactory {
                 }
 
                 // Set `deploy_proxy`, `has_callback` and `has_data` flags
-                flags := is_create3
+                flags := or(shl(1, flags), is_create3)
                 flags := or(shl(1, flags), has_callback)
                 flags := or(shl(1, flags), has_data)
             }
@@ -241,9 +280,22 @@ contract SingletonFactory {
 
             // Load previous context and salt, they are restored at the end of the execution,
             // to guarantee nested calls to this contract are consistent.
-            let prev_ctx0 := tload(0)
-            let prev_ctx1 := tload(1)
-            let prev_salt := tload(2)
+            let prev_ctx0, prev_ctx1, prev_salt
+            switch shr(3, flags)
+            case 0 {
+                prev_ctx0 := sload(0)
+                prev_ctx1 := sload(1)
+                prev_salt := sload(2)
+                let has_context := iszero(eq(and(and(prev_ctx0, prev_ctx1), prev_salt), not(0)))
+                prev_ctx0 := mul(prev_ctx0, has_context)
+                prev_ctx1 := mul(prev_ctx1, has_context)
+                prev_salt := mul(prev_salt, has_context)
+            }
+            default {
+                prev_ctx0 := tload(0)
+                prev_ctx1 := tload(1)
+                prev_salt := tload(2)
+            }
             {
                 // Compute the new Context
                 let depth := and(prev_ctx0, 0xff)
@@ -299,7 +351,7 @@ contract SingletonFactory {
                 mstore(0x20, calldataload(0x04))
                 // 0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b == keccak256(proxyCreationCode)
                 let creationcode_hash := keccak256(0x80, creationcode_len)
-                let is_create3 := shr(2, flags)
+                let is_create3 := and(shr(2, flags), 1)
                 creationcode_hash :=
                     xor(
                         creationcode_hash,
@@ -376,7 +428,7 @@ contract SingletonFactory {
                 // Encode data_len (22 bits)
                 ctx := or(shl(22, ctx), initializer_len)
                 // Encode flags (2 bits)
-                ctx := or(shl(2, ctx), shr(1, flags))
+                ctx := or(shl(2, ctx), and(shr(1, flags), 0x3))
                 // Encode selector (32 bits)
                 {
                     let callback_ptr := add(calldataload(0x64), 0x24)
@@ -387,21 +439,42 @@ contract SingletonFactory {
                 }
                 // Encode depth (8 bits)
                 ctx := or(shl(8, ctx), depth)
-                // Store on the transient storage
-                tstore(0, ctx)
                 // Encode `data[..96]` (96 bit) + sender (160 bit)
-                tstore(1, or(shl(160, shr(160, calldataload(initializer_ptr))), caller()))
-                tstore(2, calldataload(0x04))
+                let ctx1 := or(shl(160, shr(160, calldataload(initializer_ptr))), caller())
+                let salt := calldataload(0x04)
 
-                // Store `data` in the transient storage
-                for {
-                    let end := add(initializer_ptr, initializer_len)
-                    let ptr := add(initializer_ptr, 16)
-                    let offset := shl(64, depth)
-                } lt(ptr, end) {
-                    ptr := add(ptr, 0x20)
-                    offset := add(offset, 0x01)
-                } { tstore(offset, calldataload(ptr)) }
+                // Store `ctx` and `salt` in the transient storage or storage.
+                switch shr(3, flags)
+                case 0 {
+                    sstore(0, ctx)
+                    sstore(1, ctx1)
+                    sstore(2, salt)
+
+                    // Store `ctx.data` in the transient storage.
+                    for {
+                        let end := add(initializer_ptr, initializer_len)
+                        let ptr := add(initializer_ptr, 16)
+                        let offset := shl(64, depth)
+                    } lt(ptr, end) {
+                        ptr := add(ptr, 0x20)
+                        offset := add(offset, 0x01)
+                    } { sstore(offset, calldataload(ptr)) }
+                }
+                default {
+                    tstore(0, ctx)
+                    tstore(1, ctx1)
+                    tstore(2, salt)
+
+                    // Store `ctx.data` in the storage.
+                    for {
+                        let end := add(initializer_ptr, initializer_len)
+                        let ptr := add(initializer_ptr, 16)
+                        let offset := shl(64, depth)
+                    } lt(ptr, end) {
+                        ptr := add(ptr, 0x20)
+                        offset := add(offset, 0x01)
+                    } { tstore(offset, calldataload(ptr)) }
+                }
             }
 
             // Workaround for substrate evm based chains, where `selfbalance` can be less than
@@ -418,12 +491,12 @@ contract SingletonFactory {
                 mstore(0x60, 0xfd5b60203d3d363d3d37363d34f080603357fd5b9052f3000000000000000000)
 
                 // If `create3` is enabled, use the proxy creation code, otherwise use provided `creationCode`
-                let is_create3 := shr(2, flags)
+                let is_create3 := and(shr(2, flags), 0x01)
                 let offset := shr(is_create3, 0x80)
                 let length := xor(creationcode_len, mul(xor(55, creationcode_len), is_create3))
 
                 // Deploy contract or Proxy, depending if `is_create3` is enabled.
-                valid := create2(mul(value, iszero(flags)), offset, length, calldataload(0x04))
+                valid := create2(mul(value, iszero(and(flags, 0x06))), offset, length, calldataload(0x04))
 
                 if is_create3 {
                     // return an error if failed to create the proxy contract
@@ -463,7 +536,7 @@ contract SingletonFactory {
                 // 0x04a5b3ee -> Create2Failed()
                 // 0x08fde50a -> Create3Failed()
                 // 0x0c5856e4 -> 0x04a5b3ee ^ 0x08fde50a
-                let is_create3 := shr(2, flags)
+                let is_create3 := and(shr(2, flags), 0x01)
                 mstore(0x00, xor(0x04a5b3ee, mul(0x0c5856e4, is_create3)))
                 revert(0x1c, 0x04)
             }
@@ -504,9 +577,19 @@ contract SingletonFactory {
             }
 
             // Restore previous ctx and salt
-            tstore(0, prev_ctx0)
-            tstore(1, prev_ctx1)
-            tstore(2, prev_salt)
+            switch shr(3, flags)
+            case 0 {
+                let is_empty := iszero(or(or(prev_ctx0, prev_ctx1), prev_salt))
+                let mask := sub(0, is_empty)
+                sstore(0, or(prev_ctx0, mask))
+                sstore(1, or(prev_ctx1, mask))
+                sstore(2, or(prev_salt, mask))
+            }
+            default {
+                tstore(0, prev_ctx0)
+                tstore(1, prev_ctx1)
+                tstore(2, prev_salt)
+            }
 
             // return the created contract address
             return(0, 0x20)
