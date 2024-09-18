@@ -54,6 +54,14 @@ contract SingletonFactory {
             sstore(1, placeholder)
             sstore(2, placeholder)
             sstore(3, placeholder)
+            sstore(0x10000000000000000, placeholder)
+            sstore(0x10000000000000001, placeholder)
+            sstore(0x10000000000000002, placeholder)
+            sstore(0x10000000000000003, placeholder)
+            sstore(0x10000000000000004, placeholder)
+            sstore(0x10000000000000005, placeholder)
+            sstore(0x10000000000000006, placeholder)
+            sstore(0x10000000000000007, placeholder)
         }
     }
 
@@ -616,8 +624,25 @@ contract SingletonFactory {
             }
 
             // Restore previous ctx and salt
+            // Obs: the logic for restore the state is different for storage and transient storage,
+            // because for storage, the `zero to non-zero` transition use more gas than the `non-zero to non-zero`.
             switch shr(3, flags)
             case 0 {
+                // Cleanup `ctx.data` from the storage
+                if and(flags, 0x01) {
+                    let data_ptr := add(calldataload(0x44), 0x04)
+                    let data_len := calldataload(data_ptr)
+                    data_ptr := add(data_ptr, 0x20)
+                    for {
+                        let end := add(data_ptr, data_len)
+                        let ptr := add(data_ptr, 16)
+                        let offset := shl(64, and(shr(3, sload(0)), 0x7f))
+                    } lt(ptr, end) {
+                        ptr := add(ptr, 0x20)
+                        offset := add(offset, 0x01)
+                    } { if iszero(calldataload(ptr)) { sstore(offset, not(0)) } }
+                }
+
                 let is_empty := iszero(or(or(prev_ctx0, prev_ctx1), prev_salt))
                 let mask := sub(0, is_empty)
                 sstore(0, or(prev_ctx0, mask))
