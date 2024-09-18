@@ -13,6 +13,7 @@ struct Context {
     CreateKind kind;
     bool hasCallback;
     bytes4 callbackSelector;
+    uint256 value;
     uint256 salt;
     bytes data;
 }

@@ -40,6 +40,7 @@ contract SingletonFactoryTest is Test {
     function assertEq(Context memory a, Context memory b) private pure {
         assertEq(a.contractAddress, b.contractAddress, "a.contractAddress != b.contractAddress");
         assertEq(a.sender, b.sender, "a.sender != b.sender");
+        assertEq(a.value, b.value, "a.value != b.value");
         assertEq(a.salt, b.salt, "a.salt != b.salt");
         assertEq(a.callDepth, b.callDepth, "a.callDepth != b.callDepth");
         assertEq(a.hasCallback, b.hasCallback, "a.hasCallback != b.hasCallback");
@@ -129,6 +130,7 @@ contract SingletonFactoryTest is Test {
             kind: CreateKind.CREATE2,
             hasCallback: false,
             callbackSelector: bytes4(0),
+            value: 0,
             salt: salt,
             data: hex""
         });
@@ -141,6 +143,7 @@ contract SingletonFactoryTest is Test {
 
         // Test `create3(uint256,bytes)` with value
         vm.revertTo(snapshotId);
+        ctx.value = 1 ether;
         inspector = InspectContext(payable(factory.create2{value: 1 ether}(salt, initCode)));
         _inpectContext(ctx, inspector, 1 ether);
 
@@ -149,11 +152,13 @@ contract SingletonFactoryTest is Test {
         ctx.hasCallback = true;
         ctx.callbackSelector = selector;
         ctx.data = init;
+        ctx.value = 0;
         inspector = InspectContext(payable(factory.create2(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 0);
 
         // Test `create3(uint256,bytes,bytes)` with value
         vm.revertTo(snapshotId);
+        ctx.value = 1 ether;
         inspector = InspectContext(payable(factory.create2{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 1 ether);
     }
@@ -176,6 +181,7 @@ contract SingletonFactoryTest is Test {
             kind: CreateKind.CREATE3,
             hasCallback: false,
             callbackSelector: bytes4(0),
+            value: 0,
             salt: salt,
             data: hex""
         });
@@ -188,6 +194,7 @@ contract SingletonFactoryTest is Test {
 
         // Test `create3(uint256,bytes)` with value
         vm.revertTo(snapshotId);
+        ctx.value = 1 ether;
         inspector = InspectContext(payable(factory.create3{value: 1 ether}(salt, initCode)));
         _inpectContext(ctx, inspector, 1 ether);
 
@@ -196,11 +203,13 @@ contract SingletonFactoryTest is Test {
         ctx.hasCallback = true;
         ctx.callbackSelector = selector;
         ctx.data = init;
+        ctx.value = 0;
         inspector = InspectContext(payable(factory.create3(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 0);
 
         // Test `create3(uint256,bytes,bytes)` with value
         vm.revertTo(snapshotId);
+        ctx.value = 1 ether;
         inspector = InspectContext(payable(factory.create3{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 1 ether);
     }
@@ -239,6 +248,7 @@ contract SingletonFactoryTest is Test {
             kind: CreateKind.CREATE2,
             hasCallback: true,
             callbackSelector: NestedCreate.validateContext.selector,
+            value: 0,
             salt: 0,
             data: params
         });
