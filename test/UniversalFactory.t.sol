@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
 import {Test, console} from "forge-std/Test.sol";
@@ -29,7 +29,7 @@ contract UniversalFactoryTest is Test {
     }
 
     function create3addr(uint256 salt) private view returns (address) {
-        bytes32 codeHash = 0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b;
+        bytes32 codeHash = 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a;
         codeHash = keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), codeHash));
         address proxyAddr = address(uint160(uint256(codeHash)));
         codeHash = keccak256(abi.encodePacked(bytes2(0xd694), proxyAddr, uint8(0x01)));

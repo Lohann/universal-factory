@@ -1,7 +1,7 @@
 /*
  * Universal Factory Contract
  * This standard defines an universal factory smart contract where any address (contract or regular account) can
- * deploy and reserve contract addresses in any network.
+ * deploy and reserve deterministic contract addresses in any network.
  *
  * Written in 2024 by Lohann Paterno Coutinho Ferreira.
  *
@@ -133,7 +133,7 @@ interface IUniversalFactory {
     /**
      * Creates an contract at a deterministic address, the final address is derived exclusively from the `salt` field:
      * ```solidity
-     * bytes32 proxyHash = 0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b;
+     * bytes32 proxyHash = 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a;
      * address proxy = address(uint160(uint256(keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), proxyHash)))));
      * return address(uint160(uint256(keccak256(abi.encodePacked(uint16(0xd694), proxy, uint8(1))))));
      * ```
@@ -550,14 +550,14 @@ contract UniversalFactory {
                 ////////////////////////////////////////////////////////////////////
                 mstore(0x00, or(address(), 0xff0000000000000000000000000000000000000000))
                 mstore(0x20, calldataload(0x04))
-                // 0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b == keccak256(proxyCreationCode)
+                // 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a == keccak256(proxyCreationCode)
                 let creationcode_hash := keccak256(0x80, creationcode_len)
                 let is_create3 := and(shr(2, bitflags), 1)
                 creationcode_hash :=
                     xor(
                         creationcode_hash,
                         mul(
-                            xor(0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b, creationcode_hash),
+                            xor(0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a, creationcode_hash),
                             is_create3
                         )
                     )
@@ -571,7 +571,7 @@ contract UniversalFactory {
                     let invalid_init_code :=
                         and(
                             iszero(is_create3),
-                            eq(creationcode_hash, 0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b)
+                            eq(creationcode_hash, 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a)
                         )
                     // The contract must not exist
                     let contract_exists := extcodesize(addr)
@@ -699,23 +699,65 @@ contract UniversalFactory {
             // Create contract
             let contract_addr
             {
+                // Create3Proxy creation code
+                // 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d7360a01b33173d5260306007f3:
+                //     0x00  0x67  0x763318602e..  PUSH23 0x3318.. 0x3318602e57363d3d37363d34f080915215602e57f35bfd
+                //     0x01  0x3d  0x3d            PUSH1 0x58      23 0x3318602e57363d3d37363d34f080915215602e57f35bfd
+                //     0x01  0x3d  0x3d            MSTORE
+                //     0x03  0x52  0x5260203d3d..  PUSH5 0x60203.. 0x60203d3d73
+                //     0x04  0xf3  0x6008          PUSH1 0xa0      160 0x60203d3d73
+                //     0x05  0x60  0x6018          SHL             0x60203d3d730000000000000000000000000000000000000000
+                //     0x06  0x3d  0x3d            CALLER          addr 0x60203d3d730000000000000000000000000000000000000000
+                //     0x08  0xf3  0xf3            OR              0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+                //     0x09  0x60  0x6018          RETURNDATASIZE  0 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+                //     0x04  0xf3  0x6008          PUSH1 0x30      48
+                //     0x04  0xf3  0x6008          PUSH1 0x07      7 48
+                //     0x14  0x3d  0x3d            RETURN
+
+                // Create3Proxy runtime code
+                // 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX3318602e57363d3d37363d34f080915215602e57f35bfd
+                //     0x00  0x60  0x6020          PUSH1 0x20      32
+                //     0x03  0x3d  0x3d            RETURNDATASIZE  0 32
+                //     0x03  0x3d  0x3d            RETURNDATASIZE  0 0 32
+                //     0x00  0x60  0x74XXXXXX..    PUSH20 XXXXXXX  xxxx 0 0 32
+                //     0x01  0x3d  0x3d            CALLER          caller xxxx 0 0 32
+                //     0x02  0x3d  0x3d            XOR             fail 0 0 32
+                //     0x02  0x3d  0x3d            PUSH1 0x2e      46 fail 0 0 32
+                // ,=< 0x07  0xf0  0xf0            JUMPI           0 0 32
+                // |   0x03  0x3d  0x3d            CALLDATASIZE    cls 0 0 32
+                // |   0x04  0x36  0x36            RETURNDATASIZE  0 cls 0 0 32
+                // |   0x05  0x3d  0x3d            RETURNDATASIZE  0 0 cls 0 0 32
+                // |   0x06  0x34  0x34            CALLDATACOPY    0 0 32
+                // |   0x07  0xf0  0xf0            CALLDATASIZE    cls 0 0 32
+                // |   0x07  0xf0  0xf0            RETURNDATASIZE  0 cls 0 0 32
+                // |   0x07  0xf0  0xf0            CALLVALUE       val 0 cls 0 0 32
+                // |   0x07  0xf0  0xf0            CREATE          addr 0 0 32
+                // |   0x07  0xf0  0xf0            JUMPDEST
+                // |   0x07  0xf0  0xf0            DUP1            addr addr 0 0 32
+                // |   0x03  0x37  0x37            SWAP2           0 addr addr 0 32
+                // |   0x03  0x37  0x37            MSTORE          addr 0 32
+                // |   0x04  0x36  0x36            ISZERO          fail 0 32
+                // |   0x03  0x37  0x37            PUSH1 0x2e      46 fail 0 32
+                // |=< 0x03  0x37  0x37            JUMPI           0 32
+                // |   0x03  0x37  0x37            RETURN
+                // `=> 0x03  0x37  0x37            JUMPDEST
+                //     0x03  0x37  0x37            REVERT
+
                 // Store `Create3Proxy` initcode in the static memory addresses 0x40 and 0x60
-                mstore(0x40, 0x3360581b3d5260733d536022601560153960373df333143d3611166021573d3d)
-                mstore(0x60, 0xfd5b60203d3d363d3d37363d34f080603357fd5b9052f3000000000000000000)
+                mstore(0x4d, 0x7360a01b33173d5260306007f3)
+                mstore(0x40, 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d)
 
                 // If `create3` is enabled, create an new `Create3Proxy`, otherwise use provided `creationCode`
                 let is_create3 := and(shr(2, bitflags), 0x01)
                 let offset := shr(is_create3, 0x80)
-                let length := xor(creationcode_len, mul(xor(55, creationcode_len), is_create3))
+                let length := xor(creationcode_len, mul(xor(45, creationcode_len), is_create3))
 
                 // Deploy contract or Proxy, depending if `is_create3` is enabled.
                 contract_addr := create2(mul(value, iszero(and(bitflags, 0x06))), offset, length, calldataload(0x04))
 
                 if is_create3 {
                     // return an error if failed to create `Create3Proxy`.
-                    // Obs: coincidentally, the `Create3Proxy` creationCode and final runtimeCode have the same length 55.
-                    // but usually the creationCode is greater than the runtimeCode.
-                    if iszero(and(eq(contract_addr, mload(0x20)), eq(extcodesize(contract_addr), 55))) {
+                    if iszero(and(eq(contract_addr, mload(0x20)), eq(extcodesize(contract_addr), 48))) {
                         // revert Create2Failed()
                         mstore(0x00, 0x04a5b3ee)
                         revert(0x1c, 0x04)
