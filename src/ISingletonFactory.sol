@@ -50,10 +50,10 @@ interface ISingletonFactory {
     error ReservedInitCode();
 
     /**
-     * @dev Maximum call depth of 256 exceeded.
+     * @dev Maximum call stack of 127 exceeded.
      * OBS: probably impossible to reach this limit, due EIP-150 `all but one 64th`.
      */
-    error CallDepthOverflow();
+    error CallStackOverflow();
 
     /**
      * Creates an contract at a deterministic address, the final address is derived from the
