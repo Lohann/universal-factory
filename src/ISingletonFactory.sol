@@ -30,17 +30,12 @@ interface ISingletonFactory {
     error Create3Failed();
 
     /**
-     * @dev The final `address(this).balance` of the `SingletonFactory` is greater than zero.
+     * @dev The `callback` reverted, this error wraps the revert reason returned by the callback.
      */
-    error InvalidSelfBalance(uint256);
+    error CallbackFailed(bytes);
 
     /**
-     * @dev The `initializer` reverted, this error wraps the revert reason returned by contract.
-     */
-    error InitializerReverted(bytes);
-
-    /**
-     * @dev The deterministic address was used already.
+     * @dev The deterministic address already exists.
      */
     error ContractAlreadyExists(address);
 
@@ -75,7 +70,7 @@ interface ISingletonFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
-     * @param data data that will be available for the contract at `ctx.data`.
+     * @param data data that will be available for the contract at `Context.data`, this field doesn't affect the resulting address.
      */
     function create2(uint256 salt, bytes calldata creationCode, bytes calldata data)
         external
@@ -89,7 +84,7 @@ interface ISingletonFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
-     * @param data data that will be available for the contract at `ctx.data`.
+     * @param data data that will be available for the contract at `Context.data`, this field doesn't affect the resulting address.
      * @param callback callback called after create the contract, this field doesn't affect the resulting address.
      */
     function create2(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
@@ -118,9 +113,9 @@ interface ISingletonFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
-     * @param params callback called after create the contract, this value doesn't affect the resulting address.
+     * @param data data that will be available for the contract at `Context.data`, this value doesn't affect the resulting address.
      */
-    function create3(uint256 salt, bytes calldata creationCode, bytes calldata params)
+    function create3(uint256 salt, bytes calldata creationCode, bytes calldata data)
         external
         payable
         returns (address);
@@ -132,16 +127,21 @@ interface ISingletonFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
-     * @param params callback called after create the contract, this value doesn't affect the resulting address.
+     * @param data data that will be available for the contract at `Context.data`, this value doesn't affect the resulting address.
      * @param callback callback called after create the contract, this field doesn't affect the resulting address.
      */
-    function create3(uint256 salt, bytes calldata creationCode, bytes calldata params, bytes calldata callback)
+    function create3(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
         external
         payable
         returns (address);
 
     /**
      * @dev returns the current call context, returns zero for all fields if there's no context.
+     * This function provides useful information that can be accessed inside the contract constructor.
+     * Examples:
+     * The `Context.data` to set immutables in the contract without affect the final address.
+     * The `Context.sender` to enforce the contract can only be created by a specific address, etc.
+     * The `Context.callbackSelector` to enforce a specific function will be called after creation.
      */
     function context() external view returns (Context memory);
 }

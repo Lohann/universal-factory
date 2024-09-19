@@ -97,7 +97,7 @@ contract SingletonFactoryTest is Test {
         console.logBytes(initializer);
         {
             bytes memory innerError = abi.encodeWithSignature("Error(string)", "send money!!");
-            bytes memory expectRevertMessage = abi.encodeWithSignature("InitializerReverted(bytes)", innerError);
+            bytes memory expectRevertMessage = abi.encodeWithSignature("CallbackFailed(bytes)", innerError);
             vm.expectRevert(expectRevertMessage);
             factory.create2(salt, initCode, "", initializer);
         }

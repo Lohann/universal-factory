@@ -2,11 +2,14 @@
 pragma solidity ^0.8.27;
 
 /**
- * SingletonFactory is an complete implementation of both EIP-2470 and EIP-3171 proposals,
- * plus some additional features that allows parameters in the constructor without influencing.
+ * SingletonFactory is an complete implementation of EIP-2470 and EIP-3171, plus some additional features
+ * that allows the creator to reserve an address for future use in any network, given this contract is deployed
+ * at the same address on all networks using Nick's Method: .
  *
  * The goal of this contract is to provide an ultimate solution for deploying contracts at deterministic
  * addresses in any network, the deployer has granular control on what parameters influences the contract address.
+ * This allow you to reserve a range of addresses for future use in ANY network, following the rules defined by you of
+ * who can deploy and what can be deployed at those addresses.
  *
  * - https://eips.ethereum.org/EIPS/eip-2470
  * - https://github.com/ethereum/EIPs/pull/3171
@@ -80,18 +83,17 @@ contract SingletonFactory {
             // doesn't support this opcode right now, it may support it in the future.
             if eq(caller(), address()) { return(0, tload(address())) }
 
-            // ------- FLAGS -------
-            //        HAS_DATA = 0x01
-            //    HAS_CALLBACK = 0x02
-            //      IS_CREATE3 = 0x04
-            // SUPPORT_EIP1153 = 0x08
-            // ---------------------
-            let flags
+            // ------- BITFLAGS -------
+            //         HAS_DATA = 0x01
+            //     HAS_CALLBACK = 0x02
+            //       IS_CREATE3 = 0x04
+            //  SUPPORT_EIP1153 = 0x08
+            // ------------------------
+            let bitflags
 
             // Check if this EVM supports EIP-1153 TRANSIENT STORAGE.
-            // This check is done by calling itself.
             // Obs: This call cost 300 gas if the EVM doesn't support EIP-1153, and 143 gas if it supports.
-            flags := staticcall(300, address(), 0, 0, 0, 0)
+            bitflags := staticcall(300, address(), 0, 0, 0, 0)
 
             let valid
             {
@@ -103,7 +105,7 @@ contract SingletonFactory {
 
                     let ctx0, ctx1, salt, value
                     {
-                        switch flags
+                        switch bitflags
                         case 0 {
                             ctx0 := sload(0)
                             ctx1 := sload(1)
@@ -158,7 +160,7 @@ contract SingletonFactory {
                     mstore(0x0140, data_len) // data_len
                     mstore(0x0160, data) // initializer_val
 
-                    switch flags
+                    switch bitflags
                     case 0 {
                         // Copy `data[16..]` from storage to memory
                         for {
@@ -215,9 +217,9 @@ contract SingletonFactory {
                 }
 
                 // Set `deploy_proxy`, `has_callback` and `has_data` flags
-                flags := or(shl(1, flags), is_create3)
-                flags := or(shl(1, flags), has_callback)
-                flags := or(shl(1, flags), has_data)
+                bitflags := or(shl(1, bitflags), is_create3)
+                bitflags := or(shl(1, bitflags), has_callback)
+                bitflags := or(shl(1, bitflags), has_data)
             }
 
             let initializer_ptr
@@ -225,11 +227,11 @@ contract SingletonFactory {
             {
                 // initializer_ptr <= 0xffffffffffffffff
                 initializer_ptr := calldataload(0x44)
-                let has_data := and(flags, 0x01)
+                let has_data := and(bitflags, 0x01)
                 let valid_initializer := and(has_data, lt(initializer_ptr, 0x010000000000000000))
                 // initializer_ptr > (has_callback ? 0x7f : 0x5f)
                 {
-                    let has_callback := shl(4, and(flags, 0x02))
+                    let has_callback := shl(4, and(bitflags, 0x02))
                     valid_initializer := and(valid_initializer, gt(initializer_ptr, add(has_callback, 0x5f)))
                 }
 
@@ -261,7 +263,7 @@ contract SingletonFactory {
             {
                 // callback_ptr <= 0xffffffffffffffff
                 let callback_ptr := calldataload(0x64)
-                let has_callback := and(shr(1, flags), 1)
+                let has_callback := and(shr(1, bitflags), 1)
                 let valid_callback := and(has_callback, lt(callback_ptr, 0x010000000000000000))
                 // callback_ptr > 0x7f
                 valid_callback := and(valid_callback, gt(callback_ptr, 0x7f))
@@ -288,7 +290,7 @@ contract SingletonFactory {
             valid := and(valid, lt(creationcode_ptr, 0x010000000000000000))
             // creationcode_ptr >= 0x3f
             {
-                let data_and_callback := and(flags, 0x03)
+                let data_and_callback := and(bitflags, 0x03)
                 data_and_callback := xor(data_and_callback, shr(1, data_and_callback))
                 valid := and(valid, gt(creationcode_ptr, add(0x3f, shl(5, data_and_callback))))
             }
@@ -316,7 +318,7 @@ contract SingletonFactory {
             let prev_slot1 := 0
             let prev_salt := 0
             let prev_value := 0
-            switch shr(3, flags)
+            switch shr(3, bitflags)
             case 0 {
                 // Load `ctx` and `salt` from the storage
                 let ctx0 := sload(0)
@@ -356,7 +358,7 @@ contract SingletonFactory {
                 }
                 depth := add(depth, 0x01)
 
-                // Static Memory Layout:
+                // ------------ Static Memory Layout ------------
                 // 0x00        -> final contract address
                 // 0x20        -> proxy contract address when using `create3`.
                 // 0x40..<0x80 -> proxy creation code when using `create3`.
@@ -375,7 +377,7 @@ contract SingletonFactory {
                 mstore(0x20, calldataload(0x04))
                 // 0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b == keccak256(proxyCreationCode)
                 let creationcode_hash := keccak256(0x80, creationcode_len)
-                let is_create3 := and(shr(2, flags), 1)
+                let is_create3 := and(shr(2, bitflags), 1)
                 creationcode_hash :=
                     xor(
                         creationcode_hash,
@@ -448,7 +450,7 @@ contract SingletonFactory {
                 let slot0
                 // Encode `data[96..128]` (32 bits)
                 {
-                    let has_data := and(flags, 0x01)
+                    let has_data := and(bitflags, 0x01)
                     let data := shr(224, shl(96, calldataload(initializer_ptr)))
                     data := mul(data, has_data)
                     slot0 := data
@@ -460,7 +462,7 @@ contract SingletonFactory {
                 {
                     let callback_ptr := add(calldataload(0x64), 0x24)
                     let callback_selector := shr(224, calldataload(callback_ptr))
-                    let has_callback := and(shr(1, flags), 1)
+                    let has_callback := and(shr(1, bitflags), 1)
                     callback_selector := mul(callback_selector, has_callback)
                     slot0 := or(shl(32, slot0), callback_selector)
                 }
@@ -468,8 +470,8 @@ contract SingletonFactory {
                 slot0 := or(shl(160, slot0), addr)
                 // Encode depth (7 bits)
                 slot0 := or(shl(7, slot0), depth)
-                // Encode flags (3 bits)
-                slot0 := or(shl(3, slot0), or(and(flags, 0x06), gt(value, 0)))
+                // Encode bitflags (3 bits)
+                slot0 := or(shl(3, slot0), or(and(bitflags, 0x06), gt(value, 0)))
 
                 // Encode `data[..96]` (96 bit) + sender (160 bit)
                 let slot1 := or(shl(160, shr(160, calldataload(initializer_ptr))), caller())
@@ -477,7 +479,7 @@ contract SingletonFactory {
                 let salt := calldataload(0x04)
 
                 // Store the new Context in the transient storage or storage.
-                let support_eip1153 := and(flags, 0x08)
+                let support_eip1153 := and(bitflags, 0x08)
                 switch support_eip1153
                 case 0 {
                     // Store the context in the storage, skip `value` if zero.
@@ -527,12 +529,12 @@ contract SingletonFactory {
                 mstore(0x60, 0xfd5b60203d3d363d3d37363d34f080603357fd5b9052f3000000000000000000)
 
                 // If `create3` is enabled, create an new `Create3Proxy`, otherwise use provided `creationCode`
-                let is_create3 := and(shr(2, flags), 0x01)
+                let is_create3 := and(shr(2, bitflags), 0x01)
                 let offset := shr(is_create3, 0x80)
                 let length := xor(creationcode_len, mul(xor(55, creationcode_len), is_create3))
 
                 // Deploy contract or Proxy, depending if `is_create3` is enabled.
-                contract_addr := create2(mul(value, iszero(and(flags, 0x06))), offset, length, calldataload(0x04))
+                contract_addr := create2(mul(value, iszero(and(bitflags, 0x06))), offset, length, calldataload(0x04))
 
                 if is_create3 {
                     // return an error if failed to create `Create3Proxy`.
@@ -549,7 +551,7 @@ contract SingletonFactory {
                         call(
                             gas(),
                             contract_addr,
-                            mul(value, iszero(and(flags, 0x02))), // Check if the flag HAS_CALLBACK is disabled
+                            mul(value, iszero(and(bitflags, 0x02))), // Check if the flag HAS_CALLBACK is disabled
                             0x80,
                             creationcode_len,
                             0x20,
@@ -569,13 +571,13 @@ contract SingletonFactory {
                 // 0x04a5b3ee -> Create2Failed()
                 // 0x08fde50a -> Create3Failed()
                 // 0x0c5856e4 -> 0x04a5b3ee ^ 0x08fde50a
-                let is_create3 := and(shr(2, flags), 0x01)
+                let is_create3 := and(shr(2, bitflags), 0x01)
                 mstore(0x00, xor(0x04a5b3ee, mul(0x0c5856e4, is_create3)))
                 revert(0x1c, 0x04)
             }
 
             // Call `callback` if provided
-            if and(flags, 0x02) {
+            if and(bitflags, 0x02) {
                 let callback_ptr := add(calldataload(0x64), 0x04)
                 let callback_len := calldataload(callback_ptr)
                 callback_ptr := add(callback_ptr, 0x20)
@@ -585,7 +587,7 @@ contract SingletonFactory {
 
                 // Call initializer
                 if iszero(call(gas(), mload(0), value, 0x80, callback_len, 0, 0)) {
-                    mstore(0x00, 0xe47a66c8)
+                    mstore(0x00, 0x30b9b6dd)
                     // error offset
                     mstore(0x20, 0x20)
                     // error length
@@ -602,10 +604,10 @@ contract SingletonFactory {
             // Restore previous ctx and salt
             // Obs: the logic for restore the state is different for storage and transient storage,
             // because for storage, the `zero to non-zero` transition use more gas than the `non-zero to non-zero`.
-            switch shr(3, flags)
+            switch shr(3, bitflags)
             case 0 {
                 // Cleanup `data` from the storage, the following code resets any zero value to 2**256 - 1.
-                if and(flags, 0x01) {
+                if and(bitflags, 0x01) {
                     let data_ptr := add(calldataload(0x44), 0x04)
                     let data_len := calldataload(data_ptr)
                     data_ptr := add(data_ptr, 0x20)
