@@ -3,20 +3,19 @@ pragma solidity ^0.8.27;
 
 import {Test, console} from "forge-std/Test.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
-import {ISingletonFactory, Context, CreateKind} from "../src/ISingletonFactory.sol";
-import {SingletonFactory} from "../src/SingletonFactory.sol";
+import {CreateKind, Context, IUniversalFactory, UniversalFactory} from "../src/UniversalFactory.sol";
 import {MockContract} from "./mocks/TestContract.t.sol";
 import {NestedCreate} from "./mocks/NestedCreate.t.sol";
 import {InspectContext} from "./mocks/InspectContext.t.sol";
 
-contract SingletonFactoryTest is Test {
-    ISingletonFactory public factory;
+contract UniversalFactoryTest is Test {
+    IUniversalFactory public factory;
 
     function setUp() public {
         assertEq(msg.sender, 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38);
         assertEq(vm.getNonce(msg.sender), 3);
         vm.startPrank(msg.sender, msg.sender);
-        factory = ISingletonFactory(address(new SingletonFactory()));
+        factory = IUniversalFactory(address(new UniversalFactory()));
         vm.stopPrank();
     }
 
@@ -82,14 +81,10 @@ contract SingletonFactoryTest is Test {
         address sender = _testAccount(100 ether);
         uint256 salt = 0x7777777777777777777777777777777777777777777777777777777777777777;
         bytes memory initCode = abi.encodePacked(type(MockContract).creationCode, abi.encode(address(factory), sender));
-        // address expect = create2addr(salt, initCode);
-        // vm.allowCheatcodes(expect);
         vm.startPrank(sender, sender);
-        // console.log("   msg.sender:", sender);
-        // console.log("  create2addr:", expect);
 
         // Reverts if the `callback` is not provided.
-        vm.expectRevert(ISingletonFactory.Create2Failed.selector);
+        vm.expectRevert(IUniversalFactory.Create2Failed.selector);
         factory.create2(salt, initCode);
 
         // Reverts no value is sent reverts.

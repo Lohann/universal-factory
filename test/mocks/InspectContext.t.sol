@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.27;
 
-// import {VmSafe} from "forge-std/Vm.sol";
-// import {Test, console} from "forge-std/Test.sol";
-import {ISingletonFactory, Context} from "../../src/ISingletonFactory.sol";
-import {SingletonFactory} from "../../src/SingletonFactory.sol";
+import {Context, IUniversalFactory} from "../../src/UniversalFactory.sol";
 
 contract InspectContext {
-    ISingletonFactory private immutable FACTORY;
+    IUniversalFactory private immutable FACTORY;
     Context private _ctx;
     uint256 private _constructorCallValue;
     bool private _initialized;
     bytes private _callback;
 
-    constructor(ISingletonFactory factory) payable {
+    constructor(IUniversalFactory factory) payable {
         FACTORY = factory;
         Context memory ctx = factory.context();
         if (ctx.hasCallback) {

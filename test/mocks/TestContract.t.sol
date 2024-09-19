@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.27;
 
-import {ISingletonFactory, Context} from "../../src/ISingletonFactory.sol";
+import {IUniversalFactory, Context} from "../../src/UniversalFactory.sol";
 
 contract MockContract {
-    ISingletonFactory private immutable FACTORY;
+    IUniversalFactory private immutable FACTORY;
     uint256 public immutable NONCE;
 
-    constructor(ISingletonFactory factory, address owner) {
+    constructor(IUniversalFactory factory, address owner) {
         Context memory ctx = factory.context();
         require(ctx.contractAddress == address(this), "address mismatch");
         require(ctx.callDepth == 1, "depth mismatch");

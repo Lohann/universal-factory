@@ -3,19 +3,18 @@ pragma solidity ^0.8.27;
 
 import {VmSafe} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
-import {ISingletonFactory, Context} from "../../src/ISingletonFactory.sol";
-import {SingletonFactory} from "../../src/SingletonFactory.sol";
+import {Context, IUniversalFactory} from "../../src/UniversalFactory.sol";
 
 contract NestedCreate {
     VmSafe internal constant VM = VmSafe(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    ISingletonFactory private immutable FACTORY;
+    IUniversalFactory private immutable FACTORY;
     Context private _ctx;
     uint256 private _constructorCallValue;
     bool private _validated;
     NestedCreate private _child;
 
-    constructor(ISingletonFactory factory) payable {
+    constructor(IUniversalFactory factory) payable {
         FACTORY = factory;
         Context memory ctx = factory.context();
         require(ctx.contractAddress == address(this), "Can only be created by `SingletonFactory`");
@@ -38,10 +37,10 @@ contract NestedCreate {
         _constructorCallValue = msg.value;
         _ctx = ctx;
         _validated = false;
-        _child = NestedCreate(payable(_create(address(factory), ctx)));
+        _child = NestedCreate(payable(_create(factory, ctx)));
     }
 
-    function _create(address factory, Context memory ctx) private returns (address) {
+    function _create(IUniversalFactory factory, Context memory ctx) private returns (address) {
         uint256[] memory depthArray = abi.decode(ctx.data, (uint256[]));
         require(depthArray.length > 0, "invalid depthArray");
         uint256 depth = depthArray[depthArray.length - 1];
@@ -66,11 +65,11 @@ contract NestedCreate {
 
             address child;
             if (ctx.hasCallback) {
-                child = ISingletonFactory(factory).create2(
+                child = factory.create2(
                     salt, creationCode, abi.encode(depthArray), abi.encodeCall(NestedCreate.validateContext, ())
                 );
             } else {
-                child = ISingletonFactory(factory).create2(salt, creationCode, abi.encode(depthArray));
+                child = factory.create2(salt, creationCode, abi.encode(depthArray));
             }
             return child;
         }

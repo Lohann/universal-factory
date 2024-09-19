@@ -1,20 +1,195 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.27;
-
-/**
- * SingletonFactory is an complete implementation of EIP-2470 and EIP-3171, plus some additional features
- * that allows the creator to reserve an address for future use in any network, given this contract is deployed
- * at the same address on all networks using Nick's Method: .
+/*
+ * Universal Factory Contract
+ * This standard defines an universal factory smart contract where any address (contract or regular account) can
+ * deploy and reserve contract addresses in any network.
+ *
+ * Written in 2024 by Lohann Paterno Coutinho Ferreira.
+ *
+ * SingletonFactory is derived from EIP-2470 and EIP-3171, plus some additional features that allows
+ * the creator to reserve an address for future use in any network, given this contract is deployed
+ * at the same address on all networks, using keyless deployment methods such as Nick's method:
+ * - https://weka.medium.com/how-to-send-ether-to-11-440-people-187e332566b7
  *
  * The goal of this contract is to provide an ultimate solution for deploying contracts at deterministic
  * addresses in any network, the deployer has granular control on what parameters influences the contract address.
- * This allow you to reserve a range of addresses for future use in ANY network, following the rules defined by you of
- * who can deploy and what can be deployed at those addresses.
+ * This allow you to reserve a range of addresses for future use in ANY network, following the rules defined in
+ * the contract constructor.
  *
- * - https://eips.ethereum.org/EIPS/eip-2470
- * - https://github.com/ethereum/EIPs/pull/3171
+ * References:
+ * - EIP-2470: https://eips.ethereum.org/EIPS/eip-2470
+ * - EIP-3171: https://github.com/ethereum/EIPs/pull/3171
+ * - Keyless Deployment Method: https://weka.medium.com/how-to-send-ether-to-11-440-people-187e332566b7
+ *
+ *  ██╗   ██╗███╗   ██╗██╗██╗   ██╗███████╗██████╗ ███████╗ █████╗ ██╗
+ *  ██║   ██║████╗  ██║██║██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██║
+ *  ██║   ██║██╔██╗ ██║██║██║   ██║█████╗  ██████╔╝███████╗███████║██║
+ *  ██║   ██║██║╚██╗██║██║╚██╗ ██╔╝██╔══╝  ██╔══██╗╚════██║██╔══██║██║
+ *  ╚██████╔╝██║ ╚████║██║ ╚████╔╝ ███████╗██║  ██║███████║██║  ██║███████╗
+ *  ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═══╝  ╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝
+ *      ███████╗ █████╗  ██████╗████████╗ ██████╗ ██████╗ ██╗   ██╗
+ *      ██╔════╝██╔══██╗██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗╚██╗ ██╔╝
+ *      █████╗  ███████║██║        ██║   ██║   ██║██████╔╝ ╚████╔╝
+ *      ██╔══╝  ██╔══██║██║        ██║   ██║   ██║██╔══██╗  ╚██╔╝
+ *      ██║     ██║  ██║╚██████╗   ██║   ╚██████╔╝██║  ██║   ██║
+ *      ╚═╝     ╚═╝  ╚═╝ ╚═════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝   ╚═╝
+ *
  */
-contract SingletonFactory {
+pragma solidity ^0.8.27;
+
+enum CreateKind {
+    CREATE2,
+    CREATE3
+}
+
+struct Context {
+    address contractAddress;
+    address sender;
+    uint8 callDepth;
+    CreateKind kind;
+    bool hasCallback;
+    bytes4 callbackSelector;
+    uint256 value;
+    uint256 salt;
+    bytes data;
+}
+
+/**
+ * @dev The interface exposed by the Universal Factory Contract.
+ */
+interface IUniversalFactory {
+    /**
+     * @dev The `initCode` reverted, it was executed by `SingletonFactory` using `CREATE2` OPCODE.
+     */
+    error Create2Failed();
+
+    /**
+     * @dev The `initCode` reverted, it was executed by the `ChildProxy` using `CREATE` OPCODE.
+     */
+    error Create3Failed();
+
+    /**
+     * @dev The `callback` reverted, this error wraps the revert reason returned by the callback.
+     */
+    error CallbackFailed(bytes);
+
+    /**
+     * @dev The deterministic address already exists.
+     */
+    error ContractAlreadyExists(address);
+
+    /**
+     * @dev The provided `initCode` is reserved for internal use only, try to use `create3` instead.
+     */
+    error ReservedInitCode();
+
+    /**
+     * @dev Maximum call stack of 127 exceeded.
+     * OBS: probably impossible to reach this limit, due EIP-150 `all but one 64th`.
+     */
+    error CallStackOverflow();
+
+    /**
+     * Creates an contract at a deterministic address, the final address is derived from the
+     * `salt` and `creationCode`, and is computed as follow:
+     * ```solidity
+     * return address(uint160(uint256(keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), keccak256(creationCode))))));
+     * ```
+     * The contract constructor can access the actual sender and other information by calling `context()`.
+     *
+     * @param salt Salt of the contract creation, this value affect the resulting address.
+     * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
+     */
+    function create2(uint256 salt, bytes calldata creationCode) external payable returns (address);
+
+    /**
+     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
+     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
+     * `initializerSlice` and `initializerLength` fields.
+     *
+     * @param salt Salt of the contract creation, this value affect the resulting address.
+     * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
+     * @param data data that will be available for the contract at `Context.data`, this field doesn't affect the resulting address.
+     */
+    function create2(uint256 salt, bytes calldata creationCode, bytes calldata data)
+        external
+        payable
+        returns (address);
+
+    /**
+     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
+     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
+     * `initializerSlice` and `initializerLength` fields.
+     *
+     * @param salt Salt of the contract creation, this value affect the resulting address.
+     * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
+     * @param data data that will be available for the contract at `Context.data`, this field doesn't affect the resulting address.
+     * @param callback callback called after create the contract, this field doesn't affect the resulting address.
+     */
+    function create2(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
+        external
+        payable
+        returns (address);
+
+    /**
+     * Creates an contract at a deterministic address, the final address is derived exclusively from the `salt` field:
+     * ```solidity
+     * bytes32 proxyHash = 0x9fc904680de2feb47c597aa19f58746c0a400d529ba7cfbe3cda504f5aa7914b;
+     * address proxy = address(uint160(uint256(keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), proxyHash)))));
+     * return address(uint160(uint256(keccak256(abi.encodePacked(uint16(0xd694), proxy, uint8(1))))));
+     * ```
+     * The contract constructor can access the actual sender and other informations by calling `context()`.
+     *
+     * @param salt Salt of the contract creation, resulting address will be derivated from this value only.
+     * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
+     */
+    function create3(uint256 salt, bytes calldata creationCode) external payable returns (address);
+
+    /**
+     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
+     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
+     * `initializerSlice` and `initializerLength` fields.
+     *
+     * @param salt Salt of the contract creation, this value affect the resulting address.
+     * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
+     * @param data data that will be available for the contract at `Context.data`, this value doesn't affect the resulting address.
+     */
+    function create3(uint256 salt, bytes calldata creationCode, bytes calldata data)
+        external
+        payable
+        returns (address);
+
+    /**
+     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
+     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
+     * `initializerSlice` and `initializerLength` fields.
+     *
+     * @param salt Salt of the contract creation, this value affect the resulting address.
+     * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
+     * @param data data that will be available for the contract at `Context.data`, this value doesn't affect the resulting address.
+     * @param callback callback called after create the contract, this field doesn't affect the resulting address.
+     */
+    function create3(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
+        external
+        payable
+        returns (address);
+
+    /**
+     * @dev returns the current call context, returns zero for all fields if there's no context.
+     * This function provides useful information that can be accessed inside the contract constructor.
+     * Examples:
+     * The `Context.data` to set immutables in the contract without affect the final address.
+     * The `Context.sender` to enforce the contract can only be created by a specific address, etc.
+     * The `Context.callbackSelector` to enforce a specific function will be called after creation.
+     */
+    function context() external view returns (Context memory);
+}
+
+/**
+ * @title Universal Factory Contract
+ * @author Lohann Paterno Coutinho Ferreira
+ * @notice This contract is a factory that allows you to deploy contracts at deterministic addresses in any network.
+ */
+contract UniversalFactory {
     /**
      * @notice The Constructor is payable due Frontier EVM compatibility, once that EVM have the concept
      * of existential deposit (ED), in this evm if you send a balance to a contract without ED, then
