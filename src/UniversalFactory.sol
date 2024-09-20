@@ -104,7 +104,8 @@ interface IUniversalFactory {
         address indexed contractAddress,
         bytes32 indexed creationCodeHash,
         bytes32 indexed codeHash,
-        bytes32 indexed callbackHash,
+        bytes32 indexed dataHash,
+        bytes32 callbackHash,
         uint8 depth,
         uint256 value
     ) anonymous;
@@ -847,20 +848,38 @@ contract UniversalFactory {
                 callback_ptr := mul(callback_ptr, has_callback)
                 callback_len := mul(callback_len, has_callback)
 
-                // Copy callback to memory
-                calldatacopy(0x80, callback_ptr, callback_len)
-
                 {
-                    // Calculate callback hash
-                    let callback_hash := keccak256(0x80, callback_len)
-                    callback_hash := mul(callback_hash, has_callback)
+                    // address indexed contractAddress,
+                    // bytes32 indexed creationCodeHash,
+                    // bytes32 indexed codeHash,
+                    // bytes32 indexed dataHash,
+                    // bytes32 callbackHash,
 
-                    // emit ContractCreated(contractAddress, initcodeHash, extcodeHash, callbackHash)
-                    let initcode_hash := mload(0x60)
+                    // Copy data to memory
+                    calldatacopy(0x80, initializer_ptr, initializer_len)
+
+                    // Calculate data hash
+                    let data_hash := keccak256(0x80, initializer_len)
+                    {
+                        let has_data := and(bitflags, 0x01)
+                        data_hash := mul(data_hash, and(bitflags, 0x01))
+                    }
+
+                    // Copy callback to memory
+                    calldatacopy(0x80, callback_ptr, callback_len)
+
+                    // Calculate callback hash
+                    {
+                        let callback_hash := keccak256(0x80, callback_len)
+                        callback_hash := mul(callback_hash, has_callback)
+                        mstore(0x20, callback_hash)
+                    }
+
+                    // emit ContractCreated(contractAddress, creationCodeHash, codeHash, dataHash)
+                    let creation_code_hash := mload(0x60)
                     mstore(0x60, value)
                     let contract_addr := mload(0)
-                    log4(0x40, 0x40, contract_addr, initcode_hash, extcodehash(contract_addr), callback_hash)
-                    mstore(0x60, initcode_hash)
+                    log4(0x20, 0x60, contract_addr, creation_code_hash, extcodehash(contract_addr), data_hash)
                 }
 
                 // Call `callback` if provided

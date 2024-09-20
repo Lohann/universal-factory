@@ -130,6 +130,7 @@ contract UniversalFactoryTest is Test {
         }
         vm.assume(selector != Inspector.context.selector);
 
+        // Setup the test environment.
         address sender = _testAccount(100 ether);
         bytes memory initCode = abi.encodePacked(type(Inspector).creationCode, abi.encode(address(factory)));
         bytes32 creationCodeHash = keccak256(initCode);
@@ -153,7 +154,9 @@ contract UniversalFactoryTest is Test {
 
         // Test `create3(uint256,bytes)`
         vm.expectEmitAnonymous(true, true, true, true, true);
-        emit IUniversalFactory.ContractCreated(ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), 1, 0);
+        emit IUniversalFactory.ContractCreated(
+            ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), bytes32(0), 1, 0
+        );
         inspector = Inspector(payable(factory.create2(salt, initCode)));
         _inpectContext(ctx, inspector, 0);
 
@@ -162,7 +165,7 @@ contract UniversalFactoryTest is Test {
         ctx.value = 1 ether;
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), 1, 1 ether
+            ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), bytes32(0), 1, 1 ether
         );
         inspector = Inspector(payable(factory.create2{value: 1 ether}(salt, initCode)));
         _inpectContext(ctx, inspector, 1 ether);
@@ -175,7 +178,7 @@ contract UniversalFactoryTest is Test {
         ctx.value = 0;
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, 1, 0
+            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 0
         );
         inspector = Inspector(payable(factory.create2(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 0);
@@ -185,21 +188,26 @@ contract UniversalFactoryTest is Test {
         ctx.value = 1 ether;
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, 1, 1 ether
+            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 1 ether
         );
         inspector = Inspector(payable(factory.create2{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 1 ether);
     }
 
     function test_fuzzCreate3(uint256 salt, bytes calldata init) external {
+        // we assume the initializer is not the `context()` selector
         bytes4 selector;
         assembly {
             selector := shl(224, calldataload(sub(init.offset, 28)))
         }
-        // we assume the initializer is not the `context()` selector
         vm.assume(selector != Inspector.context.selector);
+
+        // Setup the test environment.
         address sender = _testAccount(100 ether);
         bytes memory initCode = abi.encodePacked(type(Inspector).creationCode, abi.encode(address(factory)));
+        bytes32 creationCodeHash = keccak256(initCode);
+        bytes32 runtimeCodehash = keccak256(type(Inspector).runtimeCode);
+        bytes32 callbackHash = keccak256(init);
         vm.startPrank(sender, sender);
 
         Context memory ctx = Context({
@@ -217,12 +225,20 @@ contract UniversalFactoryTest is Test {
         uint256 snapshotId = vm.snapshot();
 
         // Test `create3(uint256,bytes)`
+        vm.expectEmitAnonymous(true, true, true, true, true);
+        emit IUniversalFactory.ContractCreated(
+            ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), bytes32(0), 1, 0
+        );
         inspector = Inspector(payable(factory.create3(salt, initCode)));
         _inpectContext(ctx, inspector, 0);
 
         // Test `create3(uint256,bytes)` with value
         vm.revertTo(snapshotId);
         ctx.value = 1 ether;
+        vm.expectEmitAnonymous(true, true, true, true, true);
+        emit IUniversalFactory.ContractCreated(
+            ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), bytes32(0), 1, 1 ether
+        );
         inspector = Inspector(payable(factory.create3{value: 1 ether}(salt, initCode)));
         _inpectContext(ctx, inspector, 1 ether);
 
@@ -232,12 +248,20 @@ contract UniversalFactoryTest is Test {
         ctx.callbackSelector = selector;
         ctx.data = init;
         ctx.value = 0;
+        vm.expectEmitAnonymous(true, true, true, true, true);
+        emit IUniversalFactory.ContractCreated(
+            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 0
+        );
         inspector = Inspector(payable(factory.create3(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 0);
 
         // Test `create3(uint256,bytes,bytes)` with value
         vm.revertTo(snapshotId);
         ctx.value = 1 ether;
+        vm.expectEmitAnonymous(true, true, true, true, true);
+        emit IUniversalFactory.ContractCreated(
+            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 1 ether
+        );
         inspector = Inspector(payable(factory.create3{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 1 ether);
     }
