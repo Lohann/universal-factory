@@ -3,8 +3,8 @@ pragma solidity ^0.8.27;
 
 import {Context, IUniversalFactory} from "../../src/UniversalFactory.sol";
 
-contract InspectContext {
-    IUniversalFactory private immutable FACTORY;
+contract Inspector {
+    IUniversalFactory private FACTORY;
     Context private _ctx;
     uint256 private _constructorCallValue;
     bool private _initialized;

@@ -36,11 +36,19 @@
  */
 pragma solidity ^0.8.27;
 
+/**
+ * @dev The type of create operation being used by the current context.
+ */
 enum CreateKind {
     CREATE2,
     CREATE3
 }
 
+/**
+ * @dev Contract Creation Context, this struct is used to provide useful information
+ * to the contract constructor, such as the sender, value, call depth, etc. Without affecting
+ * the final address of the contract.
+ */
 struct Context {
     address contractAddress;
     address sender;
@@ -87,6 +95,19 @@ interface IUniversalFactory {
      * OBS: probably impossible to reach this limit, due EIP-150 `all but one 64th`.
      */
     error CallStackOverflow();
+
+    /**
+     * @dev Emitted when a contract is created, anonymous once this is the only event emitted by the
+     * universal factory, so more fields can be indexed.
+     */
+    event ContractCreated(
+        address indexed contractAddress,
+        bytes32 indexed creationCodeHash,
+        bytes32 indexed codeHash,
+        bytes32 indexed callbackHash,
+        uint8 depth,
+        uint256 value
+    ) anonymous;
 
     /**
      * Creates an contract at a deterministic address, the final address is derived from the
@@ -230,10 +251,10 @@ contract UniversalFactory {
             sstore(3, placeholder)
 
             // slots used when `context.data.length > 16`
-            sstore(0x10000000000000000, placeholder)
-            sstore(0x10000000000000001, placeholder)
-            sstore(0x10000000000000002, placeholder)
-            sstore(0x10000000000000003, placeholder)
+            // sstore(0x10000000000000000, placeholder)
+            // sstore(0x10000000000000001, placeholder)
+            // sstore(0x10000000000000002, placeholder)
+            // sstore(0x10000000000000003, placeholder)
         }
     }
 
@@ -536,7 +557,8 @@ contract UniversalFactory {
                 // ------------ Static Memory Layout ------------
                 // 0x00        -> final contract address
                 // 0x20        -> proxy contract address when using `create3`.
-                // 0x40..<0x80 -> proxy creation code when using `create3`.
+                // 0x40        -> current call depth
+                // 0x60        -> creation code hash
                 // 0x80        -> memory offset of the provided creation code
                 //
                 // Obs: the memory layout above is ignored for revert messages, also can be
@@ -553,6 +575,7 @@ contract UniversalFactory {
                 // 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a == keccak256(proxyCreationCode)
                 let creationcode_hash := keccak256(0x80, creationcode_len)
                 let is_create3 := and(shr(2, bitflags), 1)
+                mstore(0x60, creationcode_hash)
                 creationcode_hash :=
                     xor(
                         creationcode_hash,
@@ -603,6 +626,9 @@ contract UniversalFactory {
 
                 // Store final contract address at 0x00
                 mstore(0, addr)
+
+                // Store the depth at 0x40
+                mstore(0x40, depth)
 
                 ////////////////////////////////////////////////////////////////////
                 //                           UPDATE CONTEXT                       //
@@ -696,125 +722,163 @@ contract UniversalFactory {
                 }
             }
 
-            // Create contract
-            let contract_addr
-            {
-                // Create3Proxy creation code
-                // 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d7360a01b33173d5260306007f3:
-                //     0x00  0x67  0x763318602e..  PUSH23 0x3318.. 0x3318602e57363d3d37363d34f080915215602e57f35bfd
-                //     0x01  0x3d  0x3d            PUSH1 0x58      23 0x3318602e57363d3d37363d34f080915215602e57f35bfd
-                //     0x01  0x3d  0x3d            MSTORE
-                //     0x03  0x52  0x5260203d3d..  PUSH5 0x60203.. 0x60203d3d73
-                //     0x04  0xf3  0x6008          PUSH1 0xa0      160 0x60203d3d73
-                //     0x05  0x60  0x6018          SHL             0x60203d3d730000000000000000000000000000000000000000
-                //     0x06  0x3d  0x3d            CALLER          addr 0x60203d3d730000000000000000000000000000000000000000
-                //     0x08  0xf3  0xf3            OR              0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-                //     0x09  0x60  0x6018          RETURNDATASIZE  0 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-                //     0x04  0xf3  0x6008          PUSH1 0x30      48
-                //     0x04  0xf3  0x6008          PUSH1 0x07      7 48
-                //     0x14  0x3d  0x3d            RETURN
+            // Create3Proxy creation code
+            // 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d7360a01b33173d5260306007f3:
+            //     0x00  0x67  0x763318602e..  PUSH23 0x3318.. 0x3318602e57363d3d37363d34f080915215602e57f35bfd
+            //     0x01  0x3d  0x3d            PUSH1 0x58      23 0x3318602e57363d3d37363d34f080915215602e57f35bfd
+            //     0x01  0x3d  0x3d            MSTORE
+            //     0x03  0x52  0x5260203d3d..  PUSH5 0x60203.. 0x60203d3d73
+            //     0x04  0xf3  0x6008          PUSH1 0xa0      160 0x60203d3d73
+            //     0x05  0x60  0x6018          SHL             0x60203d3d730000000000000000000000000000000000000000
+            //     0x06  0x3d  0x3d            CALLER          addr 0x60203d3d730000000000000000000000000000000000000000
+            //     0x08  0xf3  0xf3            OR              0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+            //     0x09  0x60  0x6018          RETURNDATASIZE  0 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+            //     0x04  0xf3  0x6008          PUSH1 0x30      48
+            //     0x04  0xf3  0x6008          PUSH1 0x07      7 48
+            //     0x14  0x3d  0x3d            RETURN
 
-                // Create3Proxy runtime code
-                // 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX3318602e57363d3d37363d34f080915215602e57f35bfd
-                //     0x00  0x60  0x6020          PUSH1 0x20      32
-                //     0x03  0x3d  0x3d            RETURNDATASIZE  0 32
-                //     0x03  0x3d  0x3d            RETURNDATASIZE  0 0 32
-                //     0x00  0x60  0x74XXXXXX..    PUSH20 XXXXXXX  xxxx 0 0 32
-                //     0x01  0x3d  0x3d            CALLER          caller xxxx 0 0 32
-                //     0x02  0x3d  0x3d            XOR             fail 0 0 32
-                //     0x02  0x3d  0x3d            PUSH1 0x2e      46 fail 0 0 32
-                // ,=< 0x07  0xf0  0xf0            JUMPI           0 0 32
-                // |   0x03  0x3d  0x3d            CALLDATASIZE    cls 0 0 32
-                // |   0x04  0x36  0x36            RETURNDATASIZE  0 cls 0 0 32
-                // |   0x05  0x3d  0x3d            RETURNDATASIZE  0 0 cls 0 0 32
-                // |   0x06  0x34  0x34            CALLDATACOPY    0 0 32
-                // |   0x07  0xf0  0xf0            CALLDATASIZE    cls 0 0 32
-                // |   0x07  0xf0  0xf0            RETURNDATASIZE  0 cls 0 0 32
-                // |   0x07  0xf0  0xf0            CALLVALUE       val 0 cls 0 0 32
-                // |   0x07  0xf0  0xf0            CREATE          addr 0 0 32
-                // |   0x07  0xf0  0xf0            JUMPDEST
-                // |   0x07  0xf0  0xf0            DUP1            addr addr 0 0 32
-                // |   0x03  0x37  0x37            SWAP2           0 addr addr 0 32
-                // |   0x03  0x37  0x37            MSTORE          addr 0 32
-                // |   0x04  0x36  0x36            ISZERO          fail 0 32
-                // |   0x03  0x37  0x37            PUSH1 0x2e      46 fail 0 32
-                // |=< 0x03  0x37  0x37            JUMPI           0 32
-                // |   0x03  0x37  0x37            RETURN
-                // `=> 0x03  0x37  0x37            JUMPDEST
-                //     0x03  0x37  0x37            REVERT
+            // Create3Proxy runtime code
+            // 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX3318602e57363d3d37363d34f080915215602e57f35bfd
+            //     0x00  0x60  0x6020          PUSH1 0x20      32
+            //     0x03  0x3d  0x3d            RETURNDATASIZE  0 32
+            //     0x03  0x3d  0x3d            RETURNDATASIZE  0 0 32
+            //     0x00  0x60  0x74XXXXXX..    PUSH20 XXXXXXX  xxxx 0 0 32
+            //     0x01  0x3d  0x3d            CALLER          caller xxxx 0 0 32
+            //     0x02  0x3d  0x3d            XOR             fail 0 0 32
+            //     0x02  0x3d  0x3d            PUSH1 0x2e      46 fail 0 0 32
+            // ,=< 0x07  0xf0  0xf0            JUMPI           0 0 32
+            // |   0x03  0x3d  0x3d            CALLDATASIZE    cls 0 0 32
+            // |   0x04  0x36  0x36            RETURNDATASIZE  0 cls 0 0 32
+            // |   0x05  0x3d  0x3d            RETURNDATASIZE  0 0 cls 0 0 32
+            // |   0x06  0x34  0x34            CALLDATACOPY    0 0 32
+            // |   0x07  0xf0  0xf0            CALLDATASIZE    cls 0 0 32
+            // |   0x07  0xf0  0xf0            RETURNDATASIZE  0 cls 0 0 32
+            // |   0x07  0xf0  0xf0            CALLVALUE       val 0 cls 0 0 32
+            // |   0x07  0xf0  0xf0            CREATE          addr 0 0 32
+            // |   0x07  0xf0  0xf0            JUMPDEST
+            // |   0x07  0xf0  0xf0            DUP1            addr addr 0 0 32
+            // |   0x03  0x37  0x37            SWAP2           0 addr addr 0 32
+            // |   0x03  0x37  0x37            MSTORE          addr 0 32
+            // |   0x04  0x36  0x36            ISZERO          fail 0 32
+            // |   0x03  0x37  0x37            PUSH1 0x2e      46 fail 0 32
+            // |=< 0x03  0x37  0x37            JUMPI           0 32
+            // |   0x03  0x37  0x37            RETURN
+            // `=> 0x03  0x37  0x37            JUMPDEST
+            //     0x03  0x37  0x37            REVERT
 
-                // Store `Create3Proxy` initcode in the static memory addresses 0x40 and 0x60
-                mstore(0x4d, 0x7360a01b33173d5260306007f3)
-                mstore(0x40, 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d)
-
-                // If `create3` is enabled, create an new `Create3Proxy`, otherwise use provided `creationCode`
-                let is_create3 := and(shr(2, bitflags), 0x01)
-                let offset := shr(is_create3, 0x80)
-                let length := xor(creationcode_len, mul(xor(45, creationcode_len), is_create3))
+            // Create contract using `create2` or `create3`
+            switch and(bitflags, 0x04)
+            case 0 {
+                /////////////////
+                //   CREATE2   //
+                /////////////////
 
                 // Deploy contract or Proxy, depending if `is_create3` is enabled.
-                contract_addr := create2(mul(value, iszero(and(bitflags, 0x06))), offset, length, calldataload(0x04))
+                let contract_addr :=
+                    create2(mul(value, iszero(and(bitflags, 0x06))), 0x80, creationcode_len, calldataload(0x04))
 
-                if is_create3 {
-                    // return an error if failed to create `Create3Proxy`.
-                    if iszero(and(eq(contract_addr, mload(0x20)), eq(extcodesize(contract_addr), 48))) {
-                        // revert Create2Failed()
-                        mstore(0x00, 0x04a5b3ee)
-                        revert(0x1c, 0x04)
-                    }
+                // Computed address and actual address must match
+                if or(iszero(contract_addr), xor(contract_addr, mload(0))) {
+                    // 0x04a5b3ee -> Create2Failed()
+                    mstore(0x00, 0x04a5b3ee)
+                    revert(0x1c, 0x04)
+                }
+            }
+            default {
+                /////////////////
+                //   CREATE3   //
+                /////////////////
 
-                    // Call the `Create3Proxy` to deploy the desired contract at deterministic address.
-                    if iszero(
-                        call(
-                            gas(),
-                            contract_addr,
-                            mul(value, iszero(and(bitflags, 0x02))), // Check if the flag HAS_CALLBACK is disabled
-                            0x80,
-                            creationcode_len,
-                            0x20,
-                            0x20
-                        )
-                    ) {
-                        // revert Create3Failed()
-                        mstore(0x00, 0x08fde50a)
-                        revert(0x1c, 0x04)
+                // Deploy the `Create3Proxy`
+                let proxy_addr
+                {
+                    // Save the current memory state, to restore it after the proxy deployment.
+                    let mem00 := mload(0x00)
+                    let mem20 := mload(0x20)
+                    {
+                        // Store `Create3Proxy` initcode in memory.
+                        mstore(0x0d, 0x7360a01b33173d5260306007f3)
+                        mstore(0x00, 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d)
+                        // Deploy contract or Proxy, depending if `is_create3` is enabled.
+                        proxy_addr := create2(mul(value, iszero(and(bitflags, 0x06))), 0x00, 45, calldataload(0x04))
                     }
-                    contract_addr := mload(0x20)
+                    // Restore the memory state
+                    mstore(0x00, mem00)
+                    mstore(0x20, mem20)
+                }
+
+                // return an error if failed to create `Create3Proxy`.
+                if iszero(and(eq(proxy_addr, mload(0x20)), eq(extcodesize(proxy_addr), 48))) {
+                    // revert Create3Failed()
+                    mstore(0x00, 0x08fde50a)
+                    revert(0x1c, 0x04)
+                }
+
+                // Save the computed address in the stack
+                // once the `Create3Proxy` will override the 0x00 memory location.
+                let computed_addr := mload(0)
+
+                // Call the `Create3Proxy` to deploy the desired contract at deterministic address.
+                let success :=
+                    call(
+                        gas(),
+                        proxy_addr,
+                        mul(value, iszero(and(bitflags, 0x02))), // Check if the flag HAS_CALLBACK is disabled
+                        0x80,
+                        creationcode_len,
+                        0x00,
+                        0x20
+                    )
+
+                // Comapare computed address and actual address
+                if or(iszero(success), xor(computed_addr, mload(0))) {
+                    // 0x08fde50a -> Create3Failed()
+                    mstore(0x00, 0x08fde50a)
+                    revert(0x1c, 0x04)
                 }
             }
 
-            // Computed address and actual address must match
-            if or(iszero(contract_addr), xor(contract_addr, mload(0))) {
-                // 0x04a5b3ee -> Create2Failed()
-                // 0x08fde50a -> Create3Failed()
-                // 0x0c5856e4 -> 0x04a5b3ee ^ 0x08fde50a
-                let is_create3 := and(shr(2, bitflags), 0x01)
-                mstore(0x00, xor(0x04a5b3ee, mul(0x0c5856e4, is_create3)))
-                revert(0x1c, 0x04)
-            }
-
-            // Call `callback` if provided
-            if and(bitflags, 0x02) {
+            // Emit `ContractCreated` event and call `callback` if provided
+            {
+                let has_callback := and(shr(1, bitflags), 1)
                 let callback_ptr := add(calldataload(0x64), 0x04)
                 let callback_len := calldataload(callback_ptr)
                 callback_ptr := add(callback_ptr, 0x20)
+                callback_ptr := mul(callback_ptr, has_callback)
+                callback_len := mul(callback_len, has_callback)
 
-                // copy callback to memory
+                // Copy callback to memory
                 calldatacopy(0x80, callback_ptr, callback_len)
 
-                // Call initializer
-                if iszero(call(gas(), mload(0), value, 0x80, callback_len, 0, 0)) {
-                    mstore(0x00, 0x30b9b6dd)
-                    // error offset
-                    mstore(0x20, 0x20)
-                    // error length
-                    mstore(0x40, returndatasize())
-                    // cleanup padding bytes, in case it has initializer bytes
-                    mstore(add(0x60, returndatasize()), 0x00)
-                    // Copy revert data to memory
-                    returndatacopy(0x60, 0, returndatasize())
-                    // revert(data + padding)
-                    revert(0x1c, add(and(add(returndatasize(), 31), 0xffffffffffffffe0), 0x44))
+                {
+                    // Calculate callback hash
+                    let callback_hash := keccak256(0x80, callback_len)
+                    callback_hash := mul(callback_hash, has_callback)
+
+                    // emit ContractCreated(contractAddress, initcodeHash, extcodeHash, callbackHash)
+                    let initcode_hash := mload(0x60)
+                    mstore(0x60, value)
+                    let contract_addr := mload(0)
+                    log4(0x40, 0x40, contract_addr, initcode_hash, extcodehash(contract_addr), callback_hash)
+                    mstore(0x60, initcode_hash)
+                }
+
+                // Call `callback` if provided
+                if has_callback {
+                    // Call initializer
+                    if iszero(call(gas(), mload(0), value, 0x80, callback_len, 0, 0)) {
+                        mstore(0x00, 0x30b9b6dd)
+                        // error offset
+                        mstore(0x20, 0x20)
+                        // error length
+                        mstore(0x40, returndatasize())
+                        // cleanup padding bytes, in case it has initializer bytes
+                        mstore(add(0x60, returndatasize()), 0x00)
+                        // Copy revert data to memory
+                        returndatacopy(0x60, 0, returndatasize())
+                        // revert(data + padding)
+                        revert(0x1c, add(and(add(returndatasize(), 31), 0xffffffffffffffe0), 0x44))
+                    }
                 }
             }
 

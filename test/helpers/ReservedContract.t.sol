@@ -3,23 +3,27 @@ pragma solidity ^0.8.27;
 
 import {IUniversalFactory, Context} from "../../src/UniversalFactory.sol";
 
-contract MockContract {
+/**
+ * @dev Reserved contract, can only be deployed by `owner`.
+ */
+contract ReservedContract {
     IUniversalFactory private immutable FACTORY;
     uint256 public immutable NONCE;
 
     constructor(IUniversalFactory factory, address owner) {
         Context memory ctx = factory.context();
-        require(ctx.contractAddress == address(this), "address mismatch");
+        require(msg.sender == address(factory), "unauthorized");
+        require(ctx.sender == owner, "unauthorized sender");
         require(ctx.callDepth == 1, "depth mismatch");
-        require(ctx.sender == owner, "unauthorized tx origin");
+        require(ctx.contractAddress == address(this), "address mismatch");
         require(ctx.hasCallback, "requires callback");
-        require(ctx.callbackSelector == MockContract.initialize.selector, "invalid callback");
+        require(ctx.callbackSelector == ReservedContract.initialize.selector, "invalid callback");
         NONCE = ctx.salt;
         FACTORY = factory;
     }
 
     function initialize() external payable {
         require(msg.sender == address(FACTORY), "unauthorized");
-        require(msg.value > 0, "send money!!");
+        require(msg.value > 0, "must send funds");
     }
 }
