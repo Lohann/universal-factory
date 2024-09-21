@@ -8,7 +8,7 @@ import {Context, IUniversalFactory} from "../../src/UniversalFactory.sol";
 contract NestedCreate {
     VmSafe internal constant VM = VmSafe(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    IUniversalFactory private immutable FACTORY;
+    IUniversalFactory private FACTORY;
     Context private _ctx;
     uint256 private _constructorCallValue;
     bool private _validated;

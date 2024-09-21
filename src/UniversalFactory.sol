@@ -723,50 +723,6 @@ contract UniversalFactory {
                 }
             }
 
-            // Create3Proxy creation code
-            // 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d7360a01b33173d5260306007f3:
-            //     0x00  0x67  0x763318602e..  PUSH23 0x3318.. 0x3318602e57363d3d37363d34f080915215602e57f35bfd
-            //     0x01  0x3d  0x3d            PUSH1 0x58      23 0x3318602e57363d3d37363d34f080915215602e57f35bfd
-            //     0x01  0x3d  0x3d            MSTORE
-            //     0x03  0x52  0x5260203d3d..  PUSH5 0x60203.. 0x60203d3d73
-            //     0x04  0xf3  0x6008          PUSH1 0xa0      160 0x60203d3d73
-            //     0x05  0x60  0x6018          SHL             0x60203d3d730000000000000000000000000000000000000000
-            //     0x06  0x3d  0x3d            CALLER          addr 0x60203d3d730000000000000000000000000000000000000000
-            //     0x08  0xf3  0xf3            OR              0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-            //     0x09  0x60  0x6018          RETURNDATASIZE  0 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-            //     0x04  0xf3  0x6008          PUSH1 0x30      48
-            //     0x04  0xf3  0x6008          PUSH1 0x07      7 48
-            //     0x14  0x3d  0x3d            RETURN
-
-            // Create3Proxy runtime code
-            // 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX3318602e57363d3d37363d34f080915215602e57f35bfd
-            //     0x00  0x60  0x6020          PUSH1 0x20      32
-            //     0x03  0x3d  0x3d            RETURNDATASIZE  0 32
-            //     0x03  0x3d  0x3d            RETURNDATASIZE  0 0 32
-            //     0x00  0x60  0x74XXXXXX..    PUSH20 XXXXXXX  xxxx 0 0 32
-            //     0x01  0x3d  0x3d            CALLER          caller xxxx 0 0 32
-            //     0x02  0x3d  0x3d            XOR             fail 0 0 32
-            //     0x02  0x3d  0x3d            PUSH1 0x2e      46 fail 0 0 32
-            // ,=< 0x07  0xf0  0xf0            JUMPI           0 0 32
-            // |   0x03  0x3d  0x3d            CALLDATASIZE    cls 0 0 32
-            // |   0x04  0x36  0x36            RETURNDATASIZE  0 cls 0 0 32
-            // |   0x05  0x3d  0x3d            RETURNDATASIZE  0 0 cls 0 0 32
-            // |   0x06  0x34  0x34            CALLDATACOPY    0 0 32
-            // |   0x07  0xf0  0xf0            CALLDATASIZE    cls 0 0 32
-            // |   0x07  0xf0  0xf0            RETURNDATASIZE  0 cls 0 0 32
-            // |   0x07  0xf0  0xf0            CALLVALUE       val 0 cls 0 0 32
-            // |   0x07  0xf0  0xf0            CREATE          addr 0 0 32
-            // |   0x07  0xf0  0xf0            JUMPDEST
-            // |   0x07  0xf0  0xf0            DUP1            addr addr 0 0 32
-            // |   0x03  0x37  0x37            SWAP2           0 addr addr 0 32
-            // |   0x03  0x37  0x37            MSTORE          addr 0 32
-            // |   0x04  0x36  0x36            ISZERO          fail 0 32
-            // |   0x03  0x37  0x37            PUSH1 0x2e      46 fail 0 32
-            // |=< 0x03  0x37  0x37            JUMPI           0 32
-            // |   0x03  0x37  0x37            RETURN
-            // `=> 0x03  0x37  0x37            JUMPDEST
-            //     0x03  0x37  0x37            REVERT
-
             // Create contract using `create2` or `create3`
             switch and(bitflags, 0x04)
             case 0 {
@@ -789,6 +745,50 @@ contract UniversalFactory {
                 /////////////////
                 //   CREATE3   //
                 /////////////////
+
+                // Create3Proxy creation code
+                // 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d7360a01b33173d5260306007f3:
+                //     0x00  0x67  0x763318602e..  PUSH23 0x3318.. 0x3318602e57363d3d37363d34f080915215602e57f35bfd
+                //     0x01  0x3d  0x3d            PUSH1 0x58      23 0x3318602e57363d3d37363d34f080915215602e57f35bfd
+                //     0x01  0x3d  0x3d            MSTORE
+                //     0x03  0x52  0x5260203d3d..  PUSH5 0x60203.. 0x60203d3d73
+                //     0x04  0xf3  0x6008          PUSH1 0xa0      160 0x60203d3d73
+                //     0x05  0x60  0x6018          SHL             0x60203d3d730000000000000000000000000000000000000000
+                //     0x06  0x3d  0x3d            CALLER          addr 0x60203d3d730000000000000000000000000000000000000000
+                //     0x08  0xf3  0xf3            OR              0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+                //     0x09  0x60  0x6018          RETURNDATASIZE  0 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+                //     0x04  0xf3  0x6008          PUSH1 0x30      48
+                //     0x04  0xf3  0x6008          PUSH1 0x07      7 48
+                //     0x14  0x3d  0x3d            RETURN
+
+                // Create3Proxy runtime code
+                // 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX3318602e57363d3d37363d34f080915215602e57f35bfd
+                //     0x00  0x60  0x6020          PUSH1 0x20      32
+                //     0x03  0x3d  0x3d            RETURNDATASIZE  0 32
+                //     0x03  0x3d  0x3d            RETURNDATASIZE  0 0 32
+                //     0x00  0x60  0x74XXXXXX..    PUSH20 XXXXXXX  xxxx 0 0 32
+                //     0x01  0x3d  0x3d            CALLER          caller xxxx 0 0 32
+                //     0x02  0x3d  0x3d            XOR             fail 0 0 32
+                //     0x02  0x3d  0x3d            PUSH1 0x2e      46 fail 0 0 32
+                // ,=< 0x07  0xf0  0xf0            JUMPI           0 0 32
+                // |   0x03  0x3d  0x3d            CALLDATASIZE    cls 0 0 32
+                // |   0x04  0x36  0x36            RETURNDATASIZE  0 cls 0 0 32
+                // |   0x05  0x3d  0x3d            RETURNDATASIZE  0 0 cls 0 0 32
+                // |   0x06  0x34  0x34            CALLDATACOPY    0 0 32
+                // |   0x07  0xf0  0xf0            CALLDATASIZE    cls 0 0 32
+                // |   0x07  0xf0  0xf0            RETURNDATASIZE  0 cls 0 0 32
+                // |   0x07  0xf0  0xf0            CALLVALUE       val 0 cls 0 0 32
+                // |   0x07  0xf0  0xf0            CREATE          addr 0 0 32
+                // |   0x07  0xf0  0xf0            JUMPDEST
+                // |   0x07  0xf0  0xf0            DUP1            addr addr 0 0 32
+                // |   0x03  0x37  0x37            SWAP2           0 addr addr 0 32
+                // |   0x03  0x37  0x37            MSTORE          addr 0 32
+                // |   0x04  0x36  0x36            ISZERO          fail 0 32
+                // |   0x03  0x37  0x37            PUSH1 0x2e      46 fail 0 32
+                // |=< 0x03  0x37  0x37            JUMPI           0 32
+                // |   0x03  0x37  0x37            RETURN
+                // `=> 0x03  0x37  0x37            JUMPDEST
+                //     0x03  0x37  0x37            REVERT
 
                 // Deploy the `Create3Proxy`
                 let proxy_addr
@@ -849,12 +849,6 @@ contract UniversalFactory {
                 callback_len := mul(callback_len, has_callback)
 
                 {
-                    // address indexed contractAddress,
-                    // bytes32 indexed creationCodeHash,
-                    // bytes32 indexed codeHash,
-                    // bytes32 indexed dataHash,
-                    // bytes32 callbackHash,
-
                     // Copy data to memory
                     calldatacopy(0x80, initializer_ptr, initializer_len)
 

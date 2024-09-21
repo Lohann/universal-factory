@@ -274,6 +274,8 @@ contract UniversalFactoryTest is Test {
         address sender = _testAccount(100_000 ether);
         bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(factory)));
         bytes32 codeHash = keccak256(initCode);
+        bytes32 creationCodeHash = keccak256(type(NestedCreate).creationCode);
+        bytes32 runtimeCodeHash = keccak256(type(NestedCreate).runtimeCode);
         vm.startPrank(sender, sender);
         uint256 maxDepth = 127;
 
@@ -288,7 +290,11 @@ contract UniversalFactoryTest is Test {
         bytes memory callback = abi.encodeCall(NestedCreate.validateContext, ());
 
         // Deploy the contract
+        emit IUniversalFactory.ContractCreated(
+            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 1 ether
+        );
         NestedCreate deployed = NestedCreate(payable(factory.create2(salt, initCode, params, callback)));
+        assertEq(address(deployed).code, type(NestedCreate).runtimeCode, "runtime bytecode mismatch");
 
         Context memory ctx = Context({
             contractAddress: sender,
@@ -301,10 +307,6 @@ contract UniversalFactoryTest is Test {
             salt: 0,
             data: params
         });
-        bytes32 deployedCodeHash;
-        assembly {
-            deployedCodeHash := extcodehash(deployed)
-        }
 
         // Check the context of the child contracts.
         for (uint256 i = 0; i < maxDepth; i++) {
@@ -334,7 +336,7 @@ contract UniversalFactoryTest is Test {
                 assembly {
                     childCodeHash := extcodehash(child)
                 }
-                assertEq(deployedCodeHash, childCodeHash, "child and contract must have the same codehash");
+                assertEq(runtimeCodeHash, childCodeHash, "child and contract must have the same codehash");
             }
 
             // Move to the next child contract.
