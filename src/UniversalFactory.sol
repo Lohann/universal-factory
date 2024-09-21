@@ -103,8 +103,9 @@ interface IUniversalFactory {
     event ContractCreated(
         address indexed contractAddress,
         bytes32 indexed creationCodeHash,
-        bytes32 indexed codeHash,
+        uint256 indexed salt,
         bytes32 indexed dataHash,
+        bytes32 codeHash,
         bytes32 callbackHash,
         uint8 depth,
         uint256 value
@@ -869,11 +870,13 @@ contract UniversalFactory {
                         mstore(0x20, callback_hash)
                     }
 
-                    // emit ContractCreated(contractAddress, creationCodeHash, codeHash, dataHash)
+                    // emit ContractCreated(contractAddress, creationCodeHash, salt, dataHash, codeHash, callbackHash, depth, value)
                     let creation_code_hash := mload(0x60)
                     mstore(0x60, value)
                     let contract_addr := mload(0)
-                    log4(0x20, 0x60, contract_addr, creation_code_hash, extcodehash(contract_addr), data_hash)
+                    mstore(0x00, extcodehash(contract_addr))
+                    log4(0x00, 0x80, contract_addr, creation_code_hash, calldataload(0x04), data_hash)
+                    mstore(0x00, contract_addr)
                 }
 
                 // Call `callback` if provided

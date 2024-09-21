@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Test, console} from "forge-std/Test.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {CreateKind, Context, IUniversalFactory, UniversalFactory} from "../src/UniversalFactory.sol";
 import {ReservedContract} from "./helpers/ReservedContract.t.sol";
 import {NestedCreate} from "./helpers/NestedCreate.t.sol";
@@ -155,7 +156,7 @@ contract UniversalFactoryTest is Test {
         // Test `create3(uint256,bytes)`
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), bytes32(0), 1, 0
+            ctx.contractAddress, creationCodeHash, salt, bytes32(0), runtimeCodehash, bytes32(0), 1, 0
         );
         inspector = Inspector(payable(factory.create2(salt, initCode)));
         _inpectContext(ctx, inspector, 0);
@@ -165,7 +166,7 @@ contract UniversalFactoryTest is Test {
         ctx.value = 1 ether;
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), bytes32(0), 1, 1 ether
+            ctx.contractAddress, creationCodeHash, salt, bytes32(0), runtimeCodehash, bytes32(0), 1, 1 ether
         );
         inspector = Inspector(payable(factory.create2{value: 1 ether}(salt, initCode)));
         _inpectContext(ctx, inspector, 1 ether);
@@ -178,7 +179,7 @@ contract UniversalFactoryTest is Test {
         ctx.value = 0;
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 0
+            ctx.contractAddress, creationCodeHash, salt, callbackHash, runtimeCodehash, callbackHash, 1, 0
         );
         inspector = Inspector(payable(factory.create2(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 0);
@@ -188,7 +189,7 @@ contract UniversalFactoryTest is Test {
         ctx.value = 1 ether;
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 1 ether
+            ctx.contractAddress, creationCodeHash, salt, callbackHash, runtimeCodehash, callbackHash, 1, 1 ether
         );
         inspector = Inspector(payable(factory.create2{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 1 ether);
@@ -227,7 +228,7 @@ contract UniversalFactoryTest is Test {
         // Test `create3(uint256,bytes)`
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), bytes32(0), 1, 0
+            ctx.contractAddress, creationCodeHash, salt, bytes32(0), runtimeCodehash, bytes32(0), 1, 0
         );
         inspector = Inspector(payable(factory.create3(salt, initCode)));
         _inpectContext(ctx, inspector, 0);
@@ -237,7 +238,7 @@ contract UniversalFactoryTest is Test {
         ctx.value = 1 ether;
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, bytes32(0), bytes32(0), 1, 1 ether
+            ctx.contractAddress, creationCodeHash, salt, bytes32(0), runtimeCodehash, bytes32(0), 1, 1 ether
         );
         inspector = Inspector(payable(factory.create3{value: 1 ether}(salt, initCode)));
         _inpectContext(ctx, inspector, 1 ether);
@@ -250,7 +251,7 @@ contract UniversalFactoryTest is Test {
         ctx.value = 0;
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 0
+            ctx.contractAddress, creationCodeHash, salt, callbackHash, runtimeCodehash, callbackHash, 1, 0
         );
         inspector = Inspector(payable(factory.create3(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 0);
@@ -260,7 +261,7 @@ contract UniversalFactoryTest is Test {
         ctx.value = 1 ether;
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 1 ether
+            ctx.contractAddress, creationCodeHash, salt, callbackHash, runtimeCodehash, callbackHash, 1, 1 ether
         );
         inspector = Inspector(payable(factory.create3{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 1 ether);
@@ -273,8 +274,7 @@ contract UniversalFactoryTest is Test {
     function test_neastedCreate2() external noGasMetering {
         address sender = _testAccount(100_000 ether);
         bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(factory)));
-        bytes32 codeHash = keccak256(initCode);
-        bytes32 creationCodeHash = keccak256(type(NestedCreate).creationCode);
+        bytes32 creationCodeHash = keccak256(initCode);
         bytes32 runtimeCodeHash = keccak256(type(NestedCreate).runtimeCode);
         vm.startPrank(sender, sender);
         uint256 maxDepth = 127;
@@ -288,13 +288,14 @@ contract UniversalFactoryTest is Test {
 
         uint256 salt = 0x0101010101010101010101010101010101010101010101010101010101010101;
         bytes memory callback = abi.encodeCall(NestedCreate.validateContext, ());
+        bytes32 callbackHash = keccak256(callback);
 
-        // Deploy the contract
-        emit IUniversalFactory.ContractCreated(
-            ctx.contractAddress, creationCodeHash, runtimeCodehash, callbackHash, callbackHash, 1, 1 ether
-        );
+        // Record the logs and deploy the contract
+        vm.recordLogs();
         NestedCreate deployed = NestedCreate(payable(factory.create2(salt, initCode, params, callback)));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(address(deployed).code, type(NestedCreate).runtimeCode, "runtime bytecode mismatch");
+        assertEq(logs.length, maxDepth, "logs.length != maxDepth");
 
         Context memory ctx = Context({
             contractAddress: sender,
@@ -316,7 +317,7 @@ contract UniversalFactoryTest is Test {
             ctx.callDepth += 1;
             ctx.salt += salt;
             ctx.sender = ctx.contractAddress;
-            ctx.contractAddress = create2addr(ctx.salt, codeHash);
+            ctx.contractAddress = create2addr(ctx.salt, creationCodeHash);
             ctx.data = params;
 
             // prepare the `ctx.data` for the next child contract.
@@ -338,6 +339,15 @@ contract UniversalFactoryTest is Test {
                 }
                 assertEq(runtimeCodeHash, childCodeHash, "child and contract must have the same codehash");
             }
+
+            // Check logs
+            Vm.Log memory log = logs[maxDepth - 1 - i];
+            assertEq(log.topics.length, 4, "log topics length mismatch");
+            assertEq(log.topics[0], bytes32(uint256(uint160(ctx.contractAddress))), "log.contractAddress mismatch");
+            assertEq(log.topics[1], creationCodeHash, "log.creationCodeHash mismatch");
+            assertEq(log.topics[2], bytes32(ctx.salt), "log.salt mismatch");
+            assertEq(log.topics[3], keccak256(ctx.data), "log.dataHash mismatch");
+            assertEq(log.data, abi.encode(runtimeCodeHash, callbackHash, ctx.callDepth, ctx.value), "log.data mismatch");
 
             // Move to the next child contract.
             deployed = child;
