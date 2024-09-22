@@ -268,7 +268,7 @@ contract UniversalFactoryTest is Test {
     }
 
     /**
-     * Test the `context()` when calling the `SingletonFactory` from inside an created contract.
+     * Test the `context()` when calling the `UniversalFactory` from inside an created contract.
      * obs: Stop gas metering otherwise it fails with `EvmError: OutOfGas`.
      */
     function test_neastedCreate2() external noGasMetering {
@@ -358,7 +358,7 @@ contract UniversalFactoryTest is Test {
     }
 
     /**
-     * Test the `context()` when calling the `SingletonFactory` from inside an created contract.
+     * Test the `context()` when calling the `UniversalFactory` from inside an created contract.
      * obs: Stop gas metering otherwise it fails with `EvmError: OutOfGas`.
      */
     function test_maxDepth() external noGasMetering {

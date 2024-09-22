@@ -17,7 +17,7 @@ contract NestedCreate {
     constructor(IUniversalFactory factory) payable {
         FACTORY = factory;
         Context memory ctx = factory.context();
-        require(ctx.contractAddress == address(this), "Can only be created by `SingletonFactory`");
+        require(ctx.contractAddress == address(this), "Can only be created by `UniversalFactory`");
         console.log("       address(this):", address(this));
         console.log(" ctx.contractAddress:", ctx.contractAddress);
         console.log("          ctx.sender:", ctx.sender);
@@ -82,7 +82,7 @@ contract NestedCreate {
     }
 
     function validateContext() external {
-        require(msg.sender == address(FACTORY), "only the SingletonFactory can call this method");
+        require(msg.sender == address(FACTORY), "only the UniversalFactory can call this method");
         require(_validated == false, "already validated");
         Context memory ctx = FACTORY.context();
         require(ctx.contractAddress == address(this), "address mismatch");
