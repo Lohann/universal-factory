@@ -7,10 +7,10 @@
 
 ## Examples
 
-### 1. Initialize immutables without contructor parameters.
+### 1. Initialize immutables without constructor parameters.
 
 You can initialize  to set immutables without having to set any parameter, once constructor parameters changes the final `create2` address.
-In this example, only the account `0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef` can create this contract, so as long the contract `creationCode` doesn't change, the final address doesn't change either.
+In this example, only the account `0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef` can create this contract, so as long the `creationCode` and `salt` doesn't change, the final address doesn't change either.
 ```solidity
 import {Context, IUniversalFactory} from "universal-factory/src/UniversalFactory.sol";
 
@@ -84,7 +84,9 @@ bytes memory reservedContract = type(Reserved).creationCode;
 bytes memory creationCode = type(MyContract).creationCode;
 
 // The final contract address is only influenced by `salt` and `reservedContract`.
+vm.startBroadcast();
 MyContract myContract = MyContract(factory.create2(salt, reservedContract, creationCode));
+vm.stopBroadcast();
 ```
 
 Information available in the **Context**:
