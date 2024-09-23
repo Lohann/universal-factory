@@ -71,21 +71,6 @@ contract UniversalFactoryTest is Test {
         vm.deal(account, balance);
     }
 
-    function test_dummy() external {
-        bytes memory initCode = type(UniversalFactory).creationCode;
-        emit log_named_uint("codesize", initCode.length);
-        emit log_named_bytes("bytecode", initCode);
-
-        uint256 salt = 0;
-        bytes memory creationCode = hex"600b38033d81600b3d39f3600435602435013d5260203df3";
-        bytes memory params = hex"600b38033d81600b3d39f3600435602435013d5260203df3";
-        bytes memory callback =
-            hex"771602f7000000000000000000000000000000000000000000000000000000000000dead000000000000000000000000000000000000000000000000000000000000beef";
-        bytes memory call =
-            abi.encodeWithSignature("create2(uint256,bytes,bytes,bytes)", salt, creationCode, params, callback);
-        emit log_named_bytes("create2", call);
-    }
-
     function test_correctAddress() external view {
         assertEq(msg.sender, DEFAULT_SENDER);
         assertEq(vm.getNonce(msg.sender), 5);
