@@ -119,7 +119,7 @@ The Universal Factory is already available in 12 networks at address `0x00000000
 - Shiden
 - Polygon zkEVM
 - Optimins
-- Goerli
+- Gnosis
 
 _If you are missing some network, please open an issue._
 

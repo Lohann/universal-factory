@@ -2,6 +2,7 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+gas_reports = ["UniversalFactory"]
 
 ########
 # Lint #
@@ -16,14 +17,6 @@ evm_version = 'cancun'
 optimizer = true
 optimizer_runs = 200000
 via_ir = true
-
-###############
-# EVM options #
-###############
-gas_limit = 30000000
-gas_price = 1
-block_base_fee_per_gas = 0
-block_gas_limit = 30000000
 
 #####################
 # optimizer details #
@@ -52,6 +45,14 @@ constant_optimizer = true
 # under certain circumstances. It is always on if no details are given.
 simple_counter_for_loop_unchecked_increment = true
 
+###############
+# EVM options #
+###############
+gas_limit = 30000000
+gas_price = 1
+block_base_fee_per_gas = 0
+block_gas_limit = 30000000
+
 ######################
 # Fuzz tests options #
 ######################
@@ -60,4 +61,27 @@ simple_counter_for_loop_unchecked_increment = true
 runs = 2500
 
 # When debuging fuzz tests, uncomment this seed to make tests reproducible.
-seed = "0xdeadbeefdeadbeefdeadbeefdeadbeef"
+# seed = "0xdeadbeefdeadbeefdeadbeefdeadbeef"
+
+# RPC endpoints
+[rpc_endpoints]
+mainnet = "https://eth-mainnet.alchemyapi.io/v2/pwc5rmJhrdoaSEfimoKEmsvOjKSmPDrP"
+sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
+holesky = "https://rpc.holesky.ethpandaops.io"
+astar = "https://evm.astar.network"
+astar_shiden = "https://evm.shiden.astar.network"
+astar_shibuya = "https://evm.shibuya.astar.network"
+polygon = "https://polygon-rpc.com"
+polygon_amoy = "https://rpc-amoy.polygon.technology"
+optimism = "https://sepolia.optimism.io"
+optimism_sepolia = "https://sepolia.optimism.io"
+arbitrum_one = "https://arb1.arbitrum.io/rpc"
+arbitrum_one_sepolia = "https://sepolia-rollup.arbitrum.io/rpc"
+avalanche = "https://api.avax.network/ext/bc/C/rpc"
+avalanche_fuji = "https://api.avax-test.network/ext/bc/C/rpc"
+bnb_smart_chain = "https://bsc-dataseed1.binance.org"
+bnb_smart_chain_testnet = "https://rpc.ankr.com/bsc_testnet_chapel"
+gnosis_chain = "https://rpc.gnosischain.com"
+moonbeam = "https://rpc.api.moonbeam.network"
+moonriver = "https://rpc.api.moonriver.moonbeam.network"
+moonbase = "https://rpc.testnet.moonbeam.network"
