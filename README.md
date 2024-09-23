@@ -1,8 +1,11 @@
-## Universal Factory
+# Universal Factory
 
-**Use Universal Factory to deploy contracts anywhere!**
+**Use Universal Factory to choose the address of your contracts anywhere!**
+
 
 **Universal Factory** is derived from [EIP-2470](https://eips.ethereum.org/EIPS/eip-2470) and [EIP-3171](https://github.com/ethereum/EIPs/pull/3171), with an additional feature that allows the contract constructor to access arguments without including it in the bytecode, this way custom arguments can be provided and immutables can be set without influencing the final `create2` address.
+
+## Examples
 
 ### 1. Initialize immutables without contructor parameters.
 
@@ -29,7 +32,7 @@ contract CrossChainOwned {
 }
 ```
 
-Usage
+How to deploy using foundry script.
 ```solidity
 import {CrossChainOwned} from "./CrossChainOwned.sol";
 
@@ -68,7 +71,7 @@ contract Reserved {
 }
 ```
 
-How to deploy an arbitrary contract at an reserved address:
+How to deploy using foundry script.
 ```solidity
 import {Reserved} from "./Reserved.sol";
 contract MyContract {
@@ -123,7 +126,7 @@ The Universal Factory is already available in 12 networks at address `0x00000000
 
 _If you are missing some network, please open an issue._
 
-## Pending - Keyless Deployment
+## Keyless Deployment (TODO)
 Once properly **audited** and **reviewed**, this contract is going to be deployed using the keyless deployment method—also known as Nick’s method—which relies on a single-use address. (See [Nick’s article](https://weka.medium.com/how-to-send-ether-to-11-440-people-187e332566b7) for more details). This method works as follows:
 
 Generate a transaction which deploys the contract from a new random account.
