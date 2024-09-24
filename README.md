@@ -10,63 +10,82 @@
 ### 1. Initialize immutables without constructor parameters.
 
 You can initialize  to set immutables without having to set any parameter, once constructor parameters changes the final `create2` address.
-In this example, only the account `0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef` can create this contract, so as long the `creationCode` and `salt` doesn't change, the final address doesn't change either.
+In this example, only the contract owner can create this contract, so as long the `owner`, `creationCode` and `salt` doesn't change, the final address doesn't change either.
 ```solidity
-import {Context, IUniversalFactory} from "universal-factory/src/UniversalFactory.sol";
+import {Context, IUniversalFactory} from "@universal-factory/UniversalFactory.sol";
 
-contract CrossChainOwned {
-    IUniversalFactory internal constant FACTORY = IUniversalFactory(0x000000000000e27221183e5c85058c31df6a7d01);
-    address internal constant OWNER = IUniversalFactory(0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef);
-    uint256 immutable public IMMUTABLE_VALUE;
+contract Owned {
+    IUniversalFactory internal constant FACTORY = IUniversalFactory(0x000000000000E27221183E5C85058c31DF6a7D01);
+    uint256 private immutable IMMUTABLE_VALUE;
+    address public owner;
 
-    constructor() {
-        require(msg.sender == address(FACTORY), "can only be created using Universal Factory");
-        Context memory ctx = factory.context();
+    // Any value defined in the constructor influences the CREATE2 address.
+    constructor(address _owner) {
+        Context memory ctx = FACTORY.context();
+        require(ctx.contractAddress == address(this), "can only be created using Universal Factory");
 
-        // Actual sender, who called the UniversalFactory
-        require(ctx.sender == address(OWNER), "unauthorized");
+        // Only the `_owner` can create this contract.
+        require(ctx.sender == address(_owner), "unauthorized");
 
         // Can initialize immutable, without influecing the create2 address.
+        owner = _owner;
         IMMUTABLE_VALUE = abi.decode(ctx.data, (uint256));
+    }
+
+    function value() external view returns (uint256) {
+        return IMMUTABLE_VALUE;
     }
 }
 ```
 
-How to deploy using foundry script.
+How to deploy using [foundry script](https://book.getfoundry.sh/tutorials/solidity-scripting#writing-the-script).
 ```solidity
-import {CrossChainOwned} from "./CrossChainOwned.sol";
+import {Owned} from "../src/Owned.sol";
+import {Script, console} from "forge-std/Script.sol";
 
-address owner = 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef;
-uint256 salt = 1234;
-bytes memory creationCode = type(CrossChainOwned).creationCode;
-bytes memory arguments = abi.encode(uint256(1337));
-vm.startBroadcast(owner);
-CrossChainOwned myContract = CrossChainOwned(factory.create2(salt, creationCode, arguments));
-vm.stopBroadcast();
+contract DeplotOwned is Script {
+    function run() external {
+        // SALT=1234 VALUE=321 forge script ./script/DeployOwned.s.sol --private-key $PRIVATE_KEY --broadcast
+        address owner = msg.sender;
+        uint256 salt = vm.envUint("SALT");
+        uint256 value = vm.envUint("VALUE");
+        bytes memory creationCode = bytes.concat(type(Owned).creationCode, abi.encode(owner));
+        bytes memory arguments = abi.encode(value);
+        vm.startBroadcast(msg.sender);
+        Owned owned = Owned(FACTORY.create2(salt, creationCode, arguments));
+        vm.stopBroadcast();
+    }
+}
 ```
 
-### 2. Reserved Addresses
-Reserve an address, and use it to deploy an custom bytecode later in ANY network.
+### 2. Callbacks and reserved addresses
+Reserve an address, and use it to deploy an custom bytecode in ANY network.
 ```solidity
 import {Context, IUniversalFactory} from "universal-factory/src/UniversalFactory.sol";
 
 contract Reserved {
-    IUniversalFactory internal constant FACTORY = IUniversalFactory(0x000000000000e27221183e5c85058c31df6a7d01);
-    address internal constant OWNER = IUniversalFactory(0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef);
+    IUniversalFactory internal constant FACTORY = IUniversalFactory(0x000000000000E27221183E5C85058c31DF6a7D01);
+    address internal constant OWNER = 0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF;
 
     constructor() payable {
-        require(msg.sender == address(FACTORY), "can only be created using Universal Factory");
         Context memory ctx = factory.context();
         require(ctx.sender == address(OWNER), "unauthorized");
+        require(ctx.contractAddress == address(this), "unauthorized");
 
-        // Create an arbitrary contract at an deterministic address that only the
-        // `OWNER` can use.
-        bytes memory creationCode = ctx.data;
-        address newContract;
-        assembly {
-            newContract := create(selfbalance(), add(creationCode, 0x20), mload(creationCode))
+        // If a callback is provided, the method `deploy` must be called.
+        if (ctx.hasCallback) {
+            require(ctx.callbackSelector == Proxy.deploy.selector, "invalid callback");
         }
-        require(newContract != address(0), "failed to create contract");
+    }
+
+    // only the `owner` can call this method, or `factory` when a callback is provided.
+    function deploy(bytes memory creationCode) payable returns (address addr) {
+        require(msg.sender == address(OWNER) || msg.sender == address(FACTORY), "unauthorized");
+        assembly {
+            // Prefer `address(this).balance` over `msg.value` for Frontier compatibility. 
+            addr := create(selfbalance(), add(creationCode, 0x20), mload(creationCode))
+        }
+        require(addr != address(0), "failed to create contract");
     }
 }
 ```
@@ -74,19 +93,19 @@ contract Reserved {
 How to deploy using foundry script.
 ```solidity
 import {Reserved} from "./Reserved.sol";
-contract MyContract {
-    constructor() { ... }
+import {MyContract} from "../src/MyContract.sol";
+import {Script, console} from "forge-std/Script.sol";
+
+contract DeplotMyContract is Script {
+    function run() external {
+        uint256 salt = vm.envUint("SALT");
+        bytes memory creationCode = type(Reserved).creationCode;
+        bytes memory callback = abi.encodeCall(Reserved.deploy, (type(MyContract).creationCode));
+        vm.startBroadcast(msg.sender);
+        Owned owned = Owned(FACTORY.create2(salt, creationCode, "", callback));
+        vm.stopBroadcast();
+    }
 }
-
-IUniversalFactory factory = IUniversalFactory(0x000000000000e27221183e5c85058c31df6a7d01);
-uint256 salt = 1;
-bytes memory reservedContract = type(Reserved).creationCode;
-bytes memory creationCode = type(MyContract).creationCode;
-
-// The final contract address is only influenced by `salt` and `reservedContract`.
-vm.startBroadcast();
-MyContract myContract = MyContract(factory.create2(salt, reservedContract, creationCode));
-vm.stopBroadcast();
 ```
 
 Information available in the **Context**:

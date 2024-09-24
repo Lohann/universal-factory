@@ -32,7 +32,7 @@
  *      ╚═╝     ╚═╝  ╚═╝ ╚═════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝   ╚═╝
  *
  */
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.0;
 
 /**
  * @dev The type of create operation being used by the current context.
@@ -124,9 +124,7 @@ interface IUniversalFactory {
     function create2(uint256 salt, bytes calldata creationCode) external payable returns (address);
 
     /**
-     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
-     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
-     * `initializerSlice` and `initializerLength` fields.
+     * Same as above, except it also accept `arguments` useful for initialize the contract constructor, args are available at `Context.data`.
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
@@ -139,8 +137,6 @@ interface IUniversalFactory {
 
     /**
      * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
-     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
-     * `initializerSlice` and `initializerLength` fields.
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
@@ -167,9 +163,7 @@ interface IUniversalFactory {
     function create3(uint256 salt, bytes calldata creationCode) external payable returns (address);
 
     /**
-     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
-     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
-     * `initializerSlice` and `initializerLength` fields.
+     * Same as above, except it also accept `arguments` useful for initialize the contract constructor, args are available at `Context.data`.
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
@@ -182,8 +176,6 @@ interface IUniversalFactory {
 
     /**
      * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
-     * The contract contructor can enforce it is initialized by retrieving the `Context` and checking the `hasInitializer`,
-     * `initializerSlice` and `initializerLength` fields.
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
@@ -327,7 +319,7 @@ contract UniversalFactory {
             if eq(caller(), address()) { return(0, tload(address())) }
 
             // ------- BITFLAGS -------
-            //         HAS_DATA = 0x01
+            //    HAS_ARGUMENTS = 0x01
             //     HAS_CALLBACK = 0x02
             //       IS_CREATE3 = 0x04
             //  SUPPORT_EIP1153 = 0x08
@@ -447,7 +439,7 @@ contract UniversalFactory {
                     // Check if the method contains an `data` but not an `callback`
                     // - function create2(uint256 salt, bytes calldata creationCode, bytes calldata data)
                     // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata data)
-                    let has_data := or(has_callback, or(eq(selector, 0x579da0bf), eq(selector, 0xb5164ce9)))
+                    let has_args := or(has_callback, or(eq(selector, 0x579da0bf), eq(selector, 0xb5164ce9)))
 
                     // Check if the method doesn't contain an `data` or `callback`
                     // - function create2(uint256 salt, bytes calldata creationCode)
@@ -459,17 +451,17 @@ contract UniversalFactory {
                         or(or(eq(selector, 0x53ca4842), eq(selector, 0xb5164ce9)), eq(selector, 0x1f7a56c0))
 
                     // Check if the selector is valid
-                    let valid := or(is_simple, has_data)
+                    let valid := or(is_simple, has_args)
                     {
                         // Check the minimal calldatasize when `data` or `callback` are provided
-                        let min_calldatasize := add(0x43, shl(5, add(has_data, has_callback)))
+                        let min_calldatasize := add(0x43, shl(5, add(has_args, has_callback)))
                         valid := and(valid, gt(calldatasize(), min_calldatasize))
                     }
 
-                    // Set `deploy_proxy`, `has_callback` and `has_data` flags
+                    // Set `deploy_proxy`, `has_callback` and `has_args` flags
                     bitflags := or(shl(1, bitflags), is_create3)
                     bitflags := or(shl(1, bitflags), has_callback)
-                    bitflags := or(shl(1, bitflags), has_data)
+                    bitflags := or(shl(1, bitflags), has_args)
 
                     if iszero(valid) {
                         // Revert if the selector is invalid
@@ -507,7 +499,7 @@ contract UniversalFactory {
                     // creationcode_len > 0
                     valid := and(valid, gt(creationcode_len, 0))
 
-                    // store the `creationcode_ptr` and `creationcode_len` at static memory 0xa0-0xc0
+                    // store the `creationcode_ptr` and `creationcode_len` at static memory 0xc0-0xe0
                     mstore(0xc0, creationcode_ptr)
                     mstore(0xe0, creationcode_len)
                 }
@@ -518,8 +510,8 @@ contract UniversalFactory {
                 {
                     // initializer_ptr <= 0xffffffffffffffff
                     let arguments_ptr := calldataload(0x44)
-                    let has_data := and(bitflags, 0x01)
-                    let valid_initializer := and(has_data, lt(arguments_ptr, 0x010000000000000000))
+                    let has_args := and(bitflags, 0x01)
+                    let valid_initializer := and(has_args, lt(arguments_ptr, 0x010000000000000000))
                     // initializer_ptr > (has_callback ? 0x7f : 0x5f)
                     {
                         let has_callback := shl(4, and(bitflags, 0x02))
@@ -540,16 +532,16 @@ contract UniversalFactory {
                         and(valid_initializer, iszero(gt(add(arguments_ptr, arguments_len), calldatasize())))
 
                     // Set arguments_ptr and arguments_len to zero if there's no initializer
-                    valid_initializer := and(valid_initializer, has_data)
+                    valid_initializer := and(valid_initializer, has_args)
                     arguments_ptr := mul(arguments_ptr, valid_initializer)
                     arguments_len := mul(arguments_len, valid_initializer)
 
-                    // store the `arguments_ptr` and `arguments_len` at static memory 0x00e0-0x0100
+                    // store the `arguments_ptr` and `arguments_len` at static memory 0x0100-0x0120
                     mstore(0x0100, arguments_ptr)
                     mstore(0x0120, arguments_len)
 
                     // If the call has no initializer, it is always valid.
-                    valid := and(valid, or(valid_initializer, iszero(has_data)))
+                    valid := and(valid, or(valid_initializer, iszero(has_args)))
                 }
 
                 /////////////////////////
@@ -580,7 +572,7 @@ contract UniversalFactory {
                     callback_ptr := mul(callback_ptr, valid_callback)
                     callback_len := mul(callback_len, valid_callback)
 
-                    // store the `callback_ptr` and `callback_len` at static memory 0x0120-0x0140
+                    // store the `callback_ptr` and `callback_len` at static memory 0x0140-0x0160
                     mstore(0x0140, callback_ptr)
                     mstore(0x0160, callback_len)
 
@@ -749,9 +741,9 @@ contract UniversalFactory {
                 let slot0
                 // Encode `data[96..128]` (32 bits)
                 {
-                    let has_data := and(bitflags, 0x01)
+                    let has_args := and(bitflags, 0x01)
                     let data := shr(224, shl(96, calldataload(arguments_ptr)))
-                    data := mul(data, has_data)
+                    data := mul(data, has_args)
                     slot0 := data
                 }
                 // Encode data_len (22 bits)

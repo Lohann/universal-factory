@@ -8,6 +8,7 @@ import {CreateKind, Context, IUniversalFactory, UniversalFactory} from "../src/U
 import {ReservedContract} from "./helpers/ReservedContract.t.sol";
 import {NestedCreate} from "./helpers/NestedCreate.t.sol";
 import {Inspector} from "./helpers/Inspector.t.sol";
+import {TestUtils} from "./helpers/TestUtils.sol";
 
 contract UniversalFactoryTest is Test {
     IUniversalFactory public factory;
@@ -57,20 +58,6 @@ contract UniversalFactoryTest is Test {
         assertEq(ctx, expected);
     }
 
-    function _testAccount(uint256 balance) private returns (address account) {
-        assembly ("memory-safe") {
-            let ptr := mload(0x40)
-            calldatacopy(ptr, 0, calldatasize())
-            account := keccak256(ptr, calldatasize())
-            account := and(account, 0xffffffffffffffffffffffffffffffffffffffff)
-            // clear the memory
-            calldatacopy(ptr, calldatasize(), calldatasize())
-        }
-        assertEq(account.balance, 0, "test account already created");
-        assertEq(vm.getNonce(account), 0, "test account already exists");
-        vm.deal(account, balance);
-    }
-
     function test_correctAddress() external view {
         assertEq(msg.sender, DEFAULT_SENDER);
         assertEq(vm.getNonce(msg.sender), 5);
@@ -79,7 +66,7 @@ contract UniversalFactoryTest is Test {
     }
 
     function test_create2() external {
-        address sender = _testAccount(100 ether);
+        address sender = TestUtils.testAccount(100 ether);
         uint256 salt = 0x7777777777777777777777777777777777777777777777777777777777777777;
         bytes memory initCode =
             abi.encodePacked(type(ReservedContract).creationCode, abi.encode(address(factory), sender));
@@ -117,7 +104,7 @@ contract UniversalFactoryTest is Test {
         vm.assume(selector != Inspector.context.selector);
 
         // Setup the test environment.
-        address sender = _testAccount(100 ether);
+        address sender = TestUtils.testAccount(100 ether);
         bytes memory initCode = abi.encodePacked(type(Inspector).creationCode, abi.encode(address(factory)));
         bytes32 creationCodeHash = keccak256(initCode);
         bytes32 runtimeCodehash = keccak256(type(Inspector).runtimeCode);
@@ -189,7 +176,7 @@ contract UniversalFactoryTest is Test {
         vm.assume(selector != Inspector.context.selector);
 
         // Setup the test environment.
-        address sender = _testAccount(100 ether);
+        address sender = TestUtils.testAccount(100 ether);
         bytes memory initCode = abi.encodePacked(type(Inspector).creationCode, abi.encode(address(factory)));
         bytes32 creationCodeHash = keccak256(initCode);
         bytes32 runtimeCodehash = keccak256(type(Inspector).runtimeCode);
@@ -257,7 +244,7 @@ contract UniversalFactoryTest is Test {
      * obs: Stop gas metering otherwise it fails with `EvmError: OutOfGas`.
      */
     function test_neastedCreate2() external noGasMetering {
-        address sender = _testAccount(100_000 ether);
+        address sender = TestUtils.testAccount(100_000 ether);
         bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(factory)));
         bytes32 creationCodeHash = keccak256(initCode);
         bytes32 runtimeCodeHash = keccak256(type(NestedCreate).runtimeCode);
@@ -347,7 +334,7 @@ contract UniversalFactoryTest is Test {
      * obs: Stop gas metering otherwise it fails with `EvmError: OutOfGas`.
      */
     function test_maxDepth() external noGasMetering {
-        address sender = _testAccount(100_000 ether);
+        address sender = TestUtils.testAccount(100_000 ether);
         bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(factory)));
         vm.startPrank(sender, sender);
         uint256 maxDepth = 128;
