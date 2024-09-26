@@ -118,6 +118,7 @@ interface IUniversalFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
+     * @return address of the created contract.
      */
     function create2(uint256 salt, bytes calldata creationCode) external payable returns (address);
 
@@ -126,9 +127,10 @@ interface IUniversalFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
-     * @param args data that will be available in the `Context.data`, this field doesn't affect the resulting address.
+     * @param arguments data that will be available at `Context.data`, this field doesn't affect the resulting address.
+     * @return address of the created contract.
      */
-    function create2(uint256 salt, bytes calldata creationCode, bytes calldata args)
+    function create2(uint256 salt, bytes calldata creationCode, bytes calldata arguments)
         external
         payable
         returns (address);
@@ -141,10 +143,11 @@ interface IUniversalFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
-     * @param args data that will be available in the `Context.data`, this field doesn't affect the resulting address.
+     * @param arguments data that will be available at `Context.data`, this field doesn't affect the resulting address.
      * @param callback callback called after create the contract, this field doesn't affect the resulting address.
+     * @return address of the created contract.
      */
-    function create2(uint256 salt, bytes calldata creationCode, bytes calldata args, bytes calldata callback)
+    function create2(uint256 salt, bytes calldata creationCode, bytes calldata arguments, bytes calldata callback)
         external
         payable
         returns (address);
@@ -161,6 +164,7 @@ interface IUniversalFactory {
      *
      * @param salt Salt of the contract creation, resulting address will be derivated from this value only.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
+     * @return address of the created contract.
      */
     function create3(uint256 salt, bytes calldata creationCode) external payable returns (address);
 
@@ -169,9 +173,10 @@ interface IUniversalFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
-     * @param args data that will be available in the `Context.data`, this value doesn't affect the resulting address.
+     * @param arguments data that will be available at `Context.data`, this field doesn't affect the resulting address.
+     * @return address of the created contract.
      */
-    function create3(uint256 salt, bytes calldata creationCode, bytes calldata args)
+    function create3(uint256 salt, bytes calldata creationCode, bytes calldata arguments)
         external
         payable
         returns (address);
@@ -184,10 +189,11 @@ interface IUniversalFactory {
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
-     * @param args data that will be available in the `Context.data`, this value doesn't affect the resulting address.
+     * @param arguments data that will be available at `Context.data`, this field doesn't affect the resulting address.
      * @param callback callback called after create the contract, this field doesn't affect the resulting address.
+     * @return address of the created contract.
      */
-    function create3(uint256 salt, bytes calldata creationCode, bytes calldata args, bytes calldata callback)
+    function create3(uint256 salt, bytes calldata creationCode, bytes calldata arguments, bytes calldata callback)
         external
         payable
         returns (address);
@@ -205,6 +211,7 @@ interface IUniversalFactory {
      * - `Context.salt` the salt used to derive this contract address.
      * - `Context.kind` whether `CREATE2` or `CREATE3` is used.
      * - `Context.value` the value provided, this minimal value between `msg.value` and `address(this).balance` due EVM compatibility.
+     * @return Context current call text, or zero for all values if there's no context.
      */
     function context() external view returns (Context memory);
 }
@@ -351,6 +358,9 @@ contract UniversalFactory {
                 mstore(0x20, tload(1))
                 mstore(0x40, tload(2))
                 mstore(0x60, tload(3))
+
+                // obs: for debugging purposes, you can change this to `revert(0,0)`
+                // to disable EIP-1153 support.
                 return(0, 0x80)
             }
 
@@ -368,16 +378,21 @@ contract UniversalFactory {
                     ///////////////////////////////////////////////////////////////
                     // function context() external view returns (Context memory) //
                     ///////////////////////////////////////////////////////////////
+                    // This selector is checked first to reduce the gas overhead, once this is expected to
+                    // be called more frequently.
                     if eq(selector, 0xd0496d6a) {
                         // No value can be sent once it is a view function. It also make sure the call has
                         // sufficient gas, to prevent an false negative when checking for EIP-1153 support.
                         if or(callvalue(), lt(gas(), 3000)) { revert(0, 0) }
 
-                        // Load the current context from storage.
-                        // First try to retrieve the context using EIP-1153 TRANSIENT STORAGE, the result is automatically
-                        // stored in corresponding static memory.
-                        // Obs: This call use all 1000 gas if the EVM doesn't support EIP-1153, and 472 gas if it supports.
-                        // We provide an extra 100% gas margin in case those opcodes change their gas cost in the future.
+                        //////////////////////////
+                        // Load current context //
+                        //////////////////////////
+                        // First try to retrieve the context using EIP-1153 TRANSIENT STORAGE, the result
+                        // is automatically stored in corresponding static memory.
+                        // Obs: This call use all 1000 gas if the EVM doesn't support EIP-1153, and 472 gas
+                        // if it supports. We provide an extra 100% gas margin in case those opcodes change
+                        // their gas cost in the future.
                         let support_eip1153 := staticcall(1000, address(), 0, 0, 0x0180, 0x80)
 
                         // if it doesn't support EIP-1153, then load the context from storage.
@@ -388,8 +403,10 @@ contract UniversalFactory {
                                 mstore(0x01a0, sload(1))
 
                                 // Once the `salt` zero is very common, we XOR it with the slot0 to reduce the likelihood
-                                // of storing a zero value, but it's ok if a zero salt is stored, because different than
-                                // `arguments[16..]`, the original value is restored at the end of the execution anyway.
+                                // of storing a zero value, otherwise using the salt zero ended up using more gas than
+                                // using using a non-zero salt, which is inconvenient but not an issue at all.
+                                // Notice the previous salt is always restored at the end of the execution. So this value
+                                // cannot influence any subsequent contract creation gas cost.
                                 mstore(0x01c0, xor(sload(2), slot0))
 
                                 // Only load the value if the `HAS_VALUE` flag is set.
@@ -842,8 +859,13 @@ contract UniversalFactory {
                     sstore(0, slot0)
                     sstore(1, slot1)
 
-                    // Once the `salt` zero is very common, xor it with the slot0 to reduce the likelihood of storing a zero value.
+                    // Once the `salt` zero is very common, we XOR it with the slot0 to reduce the likelihood
+                    // of storing a zero value, otherwise using the salt zero ended up using more gas than
+                    // using using a non-zero salt, which is inconvenient but not an issue at all.
+                    // Notice the previous salt is always restored at the end of the execution. So this value
+                    // cannot influence any subsequent contract creation gas cost.
                     sstore(2, xor(salt, slot0))
+
                     // When `msg.value > 0`, then the first bit of `flags` is set, so no need to store this value (saves ~2900 gas).
                     if value { sstore(3, value) }
                     if gt(args_len, 16) {
