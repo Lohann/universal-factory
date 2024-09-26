@@ -24,23 +24,6 @@ contract UniversalFactoryTest is Test {
         vm.stopPrank();
     }
 
-    function create2addr(uint256 salt, bytes32 codeHash) private view returns (address) {
-        bytes32 create2Hash = keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), codeHash));
-        return address(uint160(uint256(create2Hash)));
-    }
-
-    function create2addr(uint256 salt, bytes memory initCode) private view returns (address) {
-        return create2addr(salt, keccak256(initCode));
-    }
-
-    function create3addr(uint256 salt) private view returns (address) {
-        bytes32 codeHash = 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a;
-        codeHash = keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), codeHash));
-        address proxyAddr = address(uint160(uint256(codeHash)));
-        codeHash = keccak256(abi.encodePacked(bytes2(0xd694), proxyAddr, uint8(0x01)));
-        return address(uint160(uint256(codeHash)));
-    }
-
     function assertEq(Context memory a, Context memory b) private pure {
         assertEq(a.contractAddress, b.contractAddress, "a.contractAddress != b.contractAddress");
         assertEq(a.sender, b.sender, "a.sender != b.sender");
@@ -116,7 +99,7 @@ contract UniversalFactoryTest is Test {
         uint256 snapshotId = vm.snapshot();
 
         Context memory ctx = Context({
-            contractAddress: create2addr(salt, creationCodeHash),
+            contractAddress: factory.computeCreate2Address(salt, creationCodeHash),
             sender: sender,
             callDepth: 1,
             kind: CreateKind.CREATE2,
@@ -162,6 +145,7 @@ contract UniversalFactoryTest is Test {
         // Test `create3(uint256,bytes,bytes)` with value
         vm.revertTo(snapshotId);
         ctx.value = 1 ether;
+
         vm.expectEmitAnonymous(true, true, true, true, true);
         emit IUniversalFactory.ContractCreated(
             ctx.contractAddress,
@@ -308,7 +292,7 @@ contract UniversalFactoryTest is Test {
             ctx.callDepth += 1;
             ctx.salt += salt;
             ctx.sender = ctx.contractAddress;
-            ctx.contractAddress = create2addr(ctx.salt, creationCodeHash);
+            ctx.contractAddress = factory.computeCreate2Address(ctx.salt, creationCodeHash);
             ctx.data = params;
 
             // prepare the `ctx.data` for the next child contract.

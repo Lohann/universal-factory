@@ -1,9 +1,10 @@
+// SPDX-License-Identifier: MIT
 /*
  * Universal Factory Contract
  * This standard defines an universal factory smart contract where any address (contract or regular account) can
  * deploy and reserve deterministic contract addresses in any network.
  *
- * Written in 2024 by Lohann Paterno Coutinho Ferreira.
+ * Written in 2024 by Lohann Paterno Coutinho Ferreira <developer@lohann.dev>.
  *
  * Universal Factory is derived from EIP-2470 and EIP-3171, with an additional feature that allows the contract
  * constructor to read arguments without including it in the bytecode, this way custom arguments can be provided
@@ -108,7 +109,7 @@ interface IUniversalFactory {
     ) anonymous;
 
     /**
-     * Creates an contract at a deterministic address, the final address is derived from the
+     * @dev Creates an contract at a deterministic address, the final address is derived from the
      * `salt` and `creationCode`, and is computed as follow:
      * ```solidity
      * return address(uint160(uint256(keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), keccak256(creationCode))))));
@@ -121,11 +122,11 @@ interface IUniversalFactory {
     function create2(uint256 salt, bytes calldata creationCode) external payable returns (address);
 
     /**
-     * Same as above, except it also accept `arguments` useful for initialize the contract constructor, args are available at `Context.data`.
+     * @dev Same as `create2(uint256,bytes)`, but also includes `arguments` which will be available at `context.data`.
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
-     * @param args data that will be available for the contract at `Context.data`, this field doesn't affect the resulting address.
+     * @param args data that will be available in the `Context.data`, this field doesn't affect the resulting address.
      */
     function create2(uint256 salt, bytes calldata creationCode, bytes calldata args)
         external
@@ -133,11 +134,14 @@ interface IUniversalFactory {
         returns (address);
 
     /**
-     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
+     * @dev Same as `create2(uint256,bytes,bytes)`, but also includes a callback used to call the contract after it is created.
+     * @notice The `context.hasCallback` is always set to `true`, this method ALWAYS calls the callback, even if it is empty.
+     * IMPORTANT 1: Throws an `CallbackFailed` error if the callback reverts.
+     * IMPORTANT 2: Funds sent to this method will be forwarded to the `callback`, not the contract constructor.
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
-     * @param args data that will be available for the contract at `Context.data`, this field doesn't affect the resulting address.
+     * @param args data that will be available in the `Context.data`, this field doesn't affect the resulting address.
      * @param callback callback called after create the contract, this field doesn't affect the resulting address.
      */
     function create2(uint256 salt, bytes calldata creationCode, bytes calldata args, bytes calldata callback)
@@ -149,7 +153,7 @@ interface IUniversalFactory {
      * Creates an contract at a deterministic address, the final address is derived exclusively from the `salt` field:
      * ```solidity
      * salt = keccak256(abi.encodePacked(msg.sender, salt));
-     * bytes32 proxyHash = 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a;
+     * bytes32 proxyHash = 0xcb98364b80db304e3c59b36036695fcfcaf2d56d8bdfeb39be950fe627a2f752;
      * address proxy = address(uint160(uint256(keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), proxyHash)))));
      * return address(uint160(uint256(keccak256(abi.encodePacked(uint16(0xd694), proxy, uint8(1))))));
      * ```
@@ -161,11 +165,11 @@ interface IUniversalFactory {
     function create3(uint256 salt, bytes calldata creationCode) external payable returns (address);
 
     /**
-     * Same as above, except it also accept `arguments` useful for initialize the contract constructor, args are available at `Context.data`.
+     * @dev Same as `create3(uint256,bytes)`, but also includes `arguments` which will be available at `context.data`.
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
-     * @param args data that will be available for the contract at `Context.data`, this value doesn't affect the resulting address.
+     * @param args data that will be available in the `Context.data`, this value doesn't affect the resulting address.
      */
     function create3(uint256 salt, bytes calldata creationCode, bytes calldata args)
         external
@@ -173,11 +177,14 @@ interface IUniversalFactory {
         returns (address);
 
     /**
-     * Same as above, except it also accept a callback to call the contract after it is created, useful for initialize proxies for example.
+     * @dev Same as `create3(uint256,bytes,bytes)`, but also includes a callback used to call the contract after it is created.
+     * @notice The `context.hasCallback` is always set to `true`, this method ALWAYS calls the callback, even if it is empty.
+     * IMPORTANT 1: Throws an `CallbackFailed` error if the callback reverts.
+     * IMPORTANT 2: Funds sent to this method will be forwarded to the `callback`, not the contract constructor.
      *
      * @param salt Salt of the contract creation, this value affect the resulting address.
      * @param creationCode Creation code (constructor) of the contract to be deployed, this value doesn't affect the resulting address.
-     * @param args data that will be available for the contract at `Context.data`, this value doesn't affect the resulting address.
+     * @param args data that will be available in the `Context.data`, this value doesn't affect the resulting address.
      * @param callback callback called after create the contract, this field doesn't affect the resulting address.
      */
     function create3(uint256 salt, bytes calldata creationCode, bytes calldata args, bytes calldata callback)
@@ -186,12 +193,18 @@ interface IUniversalFactory {
         returns (address);
 
     /**
-     * @dev returns the current call context, returns zero for all fields if there's no context.
+     * @dev Current call context, returns zero for all fields if there's no context.
      * This function provides useful information that can be accessed inside the contract constructor.
      * Examples:
-     * The `Context.data` to send arguments to the contract constructor without affect the resulting address.
-     * The `Context.sender` to enforce the contract can only be created by a specific address, etc.
-     * The `Context.callbackSelector` to enforce a specific function will be called after creation.
+     * - `Context.contractAddress` the address of the contract being created.
+     * - `Context.sender` actual `msg.sender` who called the UniversalFactory.
+     * - `Context.data` to send arguments to the contract constructor without change the resulting address.
+     * - `Context.hasCallback` whether a callback was provided or not.
+     * - `Context.callbackSelector` first 4 bytes of the callback calldata (zero if no callback is provided).
+     * - `Context.callDepth` current call depth, incremented when nested contracts are created.
+     * - `Context.salt` the salt used to derive this contract address.
+     * - `Context.kind` whether `CREATE2` or `CREATE3` is used.
+     * - `Context.value` the value provided, this minimal value between `msg.value` and `address(this).balance` due EVM compatibility.
      */
     function context() external view returns (Context memory);
 }
@@ -200,6 +213,19 @@ interface IUniversalFactory {
  * @title Universal Factory Contract
  * @author Lohann Paterno Coutinho Ferreira
  * @notice This contract is a factory that allows you to deploy contracts at deterministic addresses in any network.
+ *
+ * # How it works
+ * To pass arbitrary arguments to the contract without influecing resulting address, this contract caches the arguments
+ * locally, and provide it to the contract constructor when it calls the `context()` function.
+ * - For `cancun` it caches the arguments using the EIP-1153 Transient Storage (~100 gas per word + overhead).
+ * - For `shanghai` it caches the arguments using the regular storage (~2900 gas per word + overhead).
+ *
+ * # Predictable Gas Cost
+ * This contract uses many different Branchless Code techniques (most of them develop by the author), so this contract have an very
+ * predictable gas overhead in any network (the actual overhead may change depending on the EVM implementation).
+ * - For `shanghai` evms, to guarantee an predictable gas cost, it make sure all values stored are different than zero.
+ * This is accomplished by hashing the arguments, and use the resulting hash to XOR the bytes before store and after read it.
+ * - For `cancun` there's no diffence between storing zero or non-zero values, so the `XOR` step is skipped.
  */
 contract UniversalFactory {
     /**
@@ -239,7 +265,8 @@ contract UniversalFactory {
             // - non-zero to non-zero: 2900 gas
             // - non-zero to zero:     100 gas
             //
-            // The original values are restored at the end of the execution.
+            // The original values are restored at the end of the execution, except for `args`, which don't need to be restored
+            // once they are stored in an unique offset per call depth.
             //
             // # Motivation behind `keccak256(args)`.
             // Different than `EIP-1153` transient storage, the regular storage is persisted between transactions, so to
@@ -277,17 +304,17 @@ contract UniversalFactory {
     }
 
     /**
-     * @dev This bytecode must be compatible with `shanghai` and `cancun` hardforks, the `EIP-1153` opcodes must
-     * only be used when the EVM supports `cancun`, to do accomplish that, this contract calls itself and check the
-     * `TSTORE` and `TLOAD` opcode support, this check is done dynamically in case the EVM supports it in the future.
+     * @dev This contract must be compatible with `shanghai` and `cancun` hardforks, the `EIP-1153` opcodes must
+     * only be used when the EVM supports `cancun`, to accomplish that, this contract calls itself and check the
+     * `TLOAD` opcode support, this check is done dynamically in case the EVM supports it in the future.
      *
      * @notice inline assembly is used for 3 main reason:
      * 1. Guarantee the opcode `MCOPY` isn't called, once it is only supported by `cancun`.
-     * 2. Guarantee an constant and predicatable gas cost, this contract heavily uses branchless code.
+     * 2. Guarantee an predictable gas cost, this contract uses various branchless code techniques develop by the author.
      * 3. Optimized code, to reduce the gas cost of the contract.
      *
-     * `Solidity` was chosen over pure `Yul` for portability and better developer experience, once currently you can't
-     * import Yul code in Solidity.
+     * `Solidity` was chosen over pure `Yul` due portability and developer experience reasons, once currently you can't
+     * import Yul code in Solidity, also in most block explorers you can't verify/publish YUL code.
      */
     fallback() external payable {
         // ---------------- Static Memory Layout ---------------
@@ -440,27 +467,26 @@ contract UniversalFactory {
                     // The 5 least significant bits of the selectors are unique, this allow an efficient selector
                     // verification using less than 100 gas.
                     // |               FUNCTION             |  SELECTOR  |       suffix  (5-bit)     | index | bitflags |
-                    // | create2(uint256,bytes,bytes,bytes) | 0xe45c31ee |  0xe45c31ee & 0x1f == 14  |   25  |    011   |
-                    // | create3(uint256,bytes,bytes,bytes) | 0x1f7a56c0 |  0x1f7a56c0 & 0x1f ==  0  |   26  |    111   |
-                    // | create2(uint256,bytes,bytes)       | 0x579da0bf |  0x579da0bf & 0x1f == 31  |   27  |    001   |
-                    // | create3(uint256,bytes,bytes)       | 0xb5164ce9 |  0xb5164ce9 & 0x1f ==  9  |   28  |    101   |
-                    // | create2(uint256,bytes)             | 0xfe984079 |  0xfe984079 & 0x1f == 25  |   29  |    000   |
-                    // | create3(uint256,bytes)             | 0x53ca4842 |  0x53ca4842 & 0x1f ==  2  |   30  |    100   |
-                    // | context()                          | 0xd0496d6a |  0xd0496d6a & 0x1f == 10  |   31  |    N/A   |
+                    // | create2(uint256,bytes,bytes,bytes) | 0xe45c31ee |  0xe45c31ee & 0x1f == 14  |   26  |    011   |
+                    // | create3(uint256,bytes,bytes,bytes) | 0x1f7a56c0 |  0x1f7a56c0 & 0x1f ==  0  |   27  |    111   |
+                    // | create2(uint256,bytes,bytes)       | 0x579da0bf |  0x579da0bf & 0x1f == 31  |   28  |    001   |
+                    // | create3(uint256,bytes,bytes)       | 0xb5164ce9 |  0xb5164ce9 & 0x1f ==  9  |   29  |    101   |
+                    // | create2(uint256,bytes)             | 0xfe984079 |  0xfe984079 & 0x1f == 25  |   30  |    000   |
+                    // | create3(uint256,bytes)             | 0x53ca4842 |  0x53ca4842 & 0x1f ==  2  |   31  |    100   |
 
                     // Convert the 5-bit suffix into an index using byte lookup.
                     let index
                     {
                         let suffix := and(selector, 0x1f)
-                        index := byte(suffix, 0x1a001e0000000000001c1f00000019000000000000000000001d00000000001b)
+                        index := byte(suffix, 0x1b001f0000000000001d000000001a000000000000000000001e00000000001c)
                     }
 
-                    // Extract the selector at the expected index, where 0xd0496d6a53ca4842fe984079b5164ce9579da0bf1f7a56c0e45c31ee
+                    // Extract the selector at the expected index, where 0x53ca4842fe984079b5164ce9579da0bf1f7a56c0e45c31ee
                     // is simply the selectors concatenated.
                     let expected_selector
                     {
-                        let shift := byte(index, 0x20406080a0c0)
-                        expected_selector := shr(shift, 0xd0496d6a53ca4842fe984079b5164ce9579da0bf1f7a56c0e45c31ee)
+                        let shift := byte(index, 0x20406080a0)
+                        expected_selector := shr(shift, 0x53ca4842fe984079b5164ce9579da0bf1f7a56c0e45c31ee)
                         expected_selector := and(expected_selector, 0xffffffff)
                     }
 
@@ -469,7 +495,7 @@ contract UniversalFactory {
 
                     // Validate the calldatasize against the minimal size
                     {
-                        let min_calldata_size := byte(index, 0x83836363434303)
+                        let min_calldata_size := byte(index, 0x838363634343)
                         valid := and(valid, gt(calldatasize(), min_calldata_size))
                         mstore(0x00, sub(min_calldata_size, 4))
                     }
@@ -479,10 +505,10 @@ contract UniversalFactory {
 
                     // Check if this EVM supports EIP-1153 TRANSIENT STORAGE.
                     // Obs: This call cost 1000 gas if the EVM doesn't support EIP-1153, and 472 gas if it supports.
-                    bitflags := staticcall(1000, address(), 0, 0, 0x0180, 0x80)
+                    let support_eip1153 := staticcall(1000, address(), 0, 0, 0x0180, 0x80)
 
                     // if it doesn't support EIP-1153, then load the context from storage.
-                    if iszero(bitflags) {
+                    if iszero(support_eip1153) {
                         let ctx0 := sload(0)
                         if xor(ctx0, not(0)) {
                             mstore(0x0180, ctx0)
@@ -496,8 +522,12 @@ contract UniversalFactory {
                         }
                     }
 
-                    // Set the bitflags `IS_CREATE3`, `HAS_CALLBACK` and `HAS_ARGUMENTS` using byte lookup.
-                    bitflags := or(shl(3, bitflags), byte(index, 0x03070105000400))
+                    // Set the bitflags using byte lookup.
+                    //   HAS_ARGUMENTS = 0x01
+                    //    HAS_CALLBACK = 0x02
+                    //      IS_CREATE3 = 0x04
+                    // SUPPORT_EIP1153 = 0x08
+                    bitflags := or(shl(3, support_eip1153), byte(index, 0x030701050004))
                 }
 
                 let valid
@@ -608,6 +638,9 @@ contract UniversalFactory {
                 if iszero(valid) { revert(0, 0) }
             }
 
+            ///////////////////////////////////////////////////
+            // Check if the maximum depth of 127 was reached //
+            ///////////////////////////////////////////////////
             {
                 // Decode the previous `depth`.
                 let slot0 := mload(0x0180)
@@ -625,11 +658,15 @@ contract UniversalFactory {
                 mstore(0xa0, add(depth, 1))
             }
 
-            // Workaround for substrate evm based chains, where `selfbalance` can be less than
-            // `callvalue` if this contract has no existential deposit.
+            // Workaround for Frontier EVM chains, where `address(this).balance` can be less than `msg.value` if
+            // this contract has no previous existential deposit.
+            // - https://github.com/polkadot-evm/frontier/blob/polkadot-v1.11.0/ts-tests/tests/test-balance.ts#L41
             //
             // The following code is a branchless version of the ternary operator, equivalent to:
-            // address(this).balance < msg.value ? address(this).balance : msg.value
+            // ```solidity
+            // uint256 value = address(this).balance < msg.value ? address(this).balance : msg.value;
+            // ```
+            // also see: https://github.com/OpenZeppelin/openzeppelin-contracts/pull/4976
             let value := xor(callvalue(), mul(xor(selfbalance(), callvalue()), lt(selfbalance(), callvalue())))
 
             ////////////////////////////
@@ -681,7 +718,7 @@ contract UniversalFactory {
 
                     // Compute `CREATE3` proxy address, which is `keccak256(abi.encodePacked(0xff, address(this), create3salt, proxyHash))`
                     mstore(0x00, addr)
-                    let proxy_hash := 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a
+                    let proxy_hash := 0xcb98364b80db304e3c59b36036695fcfcaf2d56d8bdfeb39be950fe627a2f752
                     mstore(0x40, proxy_hash)
                     let proxy_addr := and(keccak256(11, 85), 0xffffffffffffffffffffffffffffffffffffffff)
 
@@ -733,7 +770,7 @@ contract UniversalFactory {
                 //                       Context Storage Layout
                 // | 32-bit |  22-bit  |   32-bit   |  160-bit   |  7-bit  | 3-bit |
                 // +-+-+-+-+-+-+-+-+-+-+-+--+-+-+-+-+-+-+-+-+-+-+-++-+-+-+-+-+-+-+-+
-                // |  args  | args.len |  selector  |  contract  |  depth  | flags | offset: 0
+                // |  args  | args len |  selector  |  contract  |  depth  | flags | offset: 0
                 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
                 // |   args[..12] (96-bit)  |           sender (160-bit)           | offset: 1
                 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -749,23 +786,25 @@ contract UniversalFactory {
 
                 let args_ptr := mload(0x0100)
                 let args_len := mload(0x0120)
+                let args_slice := mul(calldataload(args_ptr), gt(args_ptr, 0))
 
                 let slot0
-                // Encode `data[96..128]` (32 bits)
+                // Encode `args[12..16]` (32 bits)
                 {
                     let has_args := and(bitflags, 0x01)
-                    let data := shr(224, shl(96, calldataload(args_ptr)))
-                    data := mul(data, has_args)
-                    slot0 := data
+                    let args := shr(224, shl(96, args_slice))
+                    args := mul(args, has_args)
+                    slot0 := args
                 }
-                // Encode data_len (22 bits)
+                // Encode args_len (22 bits)
                 // Obs: validated previously, so is always less than 2**22
                 slot0 := or(shl(22, slot0), args_len)
                 // Encode selector (32 bits)
                 {
                     let callback_ptr := mload(0x0140)
+                    let callback_len := mload(0x0160)
                     let callback_selector := shr(224, calldataload(callback_ptr))
-                    callback_selector := mul(callback_selector, gt(callback_ptr, 0))
+                    callback_selector := mul(callback_selector, gt(callback_len, 0))
                     slot0 := or(shl(32, slot0), callback_selector)
                 }
                 // Encode contractAddress (160 bits)
@@ -776,8 +815,8 @@ contract UniversalFactory {
                 // Encode bitflags (3 bits)
                 slot0 := or(shl(3, slot0), or(and(bitflags, 0x06), gt(value, 0)))
 
-                // Encode `data[..96]` (96 bit) + sender (160 bit)
-                let slot1 := or(shl(160, shr(160, calldataload(args_ptr))), caller())
+                // Encode `args[..12]` (96 bit) + sender (160 bit)
+                let slot1 := or(shl(160, shr(160, args_slice)), caller())
                 // Encode salt (256 bits)
                 let salt := calldataload(0x04)
 
@@ -795,7 +834,7 @@ contract UniversalFactory {
                         // When `arguments.length > 16`, we also store the argument hash in the context.
                         let args_hash := mload(0x60)
 
-                        /// If `data.length > 16`, then store the remaining bytes in the transient storage,
+                        /// If `args.length > 16`, then store the remaining bytes in the transient storage,
                         // starting at index `2**64 * depth`.
                         for {
                             let end := add(args_ptr, args_len)
@@ -855,48 +894,47 @@ contract UniversalFactory {
                 /////////////////
 
                 // Create3Proxy creation code
-                // 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d7360a01b33173d5260306007f3:
-                //     0x00  0x67  0x763318602e..  PUSH23 0x3318.. 0x3318602e57363d3d37363d34f080915215602e57f35bfd
-                //     0x01  0x3d  0x3d            PUSH1 0x58      23 0x3318602e57363d3d37363d34f080915215602e57f35bfd
-                //     0x01  0x3d  0x3d            MSTORE
-                //     0x03  0x52  0x5260203d3d..  PUSH5 0x60203.. 0x60203d3d73
-                //     0x04  0xf3  0x6008          PUSH1 0xa0      160 0x60203d3d73
-                //     0x05  0x60  0x6018          SHL             0x60203d3d730000000000000000000000000000000000000000
-                //     0x06  0x3d  0x3d            CALLER          addr 0x60203d3d730000000000000000000000000000000000000000
-                //     0x08  0xf3  0xf3            OR              0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-                //     0x09  0x60  0x6018          RETURNDATASIZE  0 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-                //     0x04  0xf3  0x6008          PUSH1 0x30      48
-                //     0x04  0xf3  0x6008          PUSH1 0x07      7 48
-                //     0x14  0x3d  0x3d            RETURN
+                // 0x763318602e57363d3d37363d34f080915215602e57f35bfd602b52336014526460203d3d733d526030601bf3:
+                //     0x00  0x763318602e..  PUSH23 0x3318.. 0x3318602e57363d3d37363d34f080915215602e57f35bfd
+                //     0x18  0x602b          PUSH1 0x2b      43 0x3318602e57363d3d37363d34f080915215602e57f35bfd
+                //     0x1a  0x52            MSTORE
+                //     0x1b  0x33            CALLER          addr
+                //     0x1c  0x6014          PUSH1 20        20 addr
+                //     0x1f  0x52            MSTORE
+                //     0x25  0x6460203d3d73  PUSH5 0x6020..  0x60203d3d73
+                //     0x26  0x3d            RETURNDATASIZE  0 0x60203d3d73
+                //     0x27  0x52            MSTORE
+                //     0x29  0x6030          PUSH1 48        48
+                //     0x2a  0x601b          PUSH1 27        27 48
+                //     0x2b  0xf3            RETURN
 
-                // Create3Proxy runtime code
+                // Create3Proxy runtime code, where `XXXX..` is the Universal Factory contract address.
                 // 0x60203d3d73XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX3318602e57363d3d37363d34f080915215602e57f35bfd
-                //     0x00  0x60  0x6020          PUSH1 0x20      32
-                //     0x03  0x3d  0x3d            RETURNDATASIZE  0 32
-                //     0x03  0x3d  0x3d            RETURNDATASIZE  0 0 32
-                //     0x00  0x60  0x74XXXXXX..    PUSH20 XXXXXXX  xxxx 0 0 32
-                //     0x01  0x3d  0x3d            CALLER          caller xxxx 0 0 32
-                //     0x02  0x3d  0x3d            XOR             fail 0 0 32
-                //     0x02  0x3d  0x3d            PUSH1 0x2e      46 fail 0 0 32
-                // ,=< 0x07  0xf0  0xf0            JUMPI           0 0 32
-                // |   0x03  0x3d  0x3d            CALLDATASIZE    cls 0 0 32
-                // |   0x04  0x36  0x36            RETURNDATASIZE  0 cls 0 0 32
-                // |   0x05  0x3d  0x3d            RETURNDATASIZE  0 0 cls 0 0 32
-                // |   0x06  0x34  0x34            CALLDATACOPY    0 0 32
-                // |   0x07  0xf0  0xf0            CALLDATASIZE    cls 0 0 32
-                // |   0x07  0xf0  0xf0            RETURNDATASIZE  0 cls 0 0 32
-                // |   0x07  0xf0  0xf0            CALLVALUE       val 0 cls 0 0 32
-                // |   0x07  0xf0  0xf0            CREATE          addr 0 0 32
-                // |   0x07  0xf0  0xf0            JUMPDEST
-                // |   0x07  0xf0  0xf0            DUP1            addr addr 0 0 32
-                // |   0x03  0x37  0x37            SWAP2           0 addr addr 0 32
-                // |   0x03  0x37  0x37            MSTORE          addr 0 32
-                // |   0x04  0x36  0x36            ISZERO          fail 0 32
-                // |   0x03  0x37  0x37            PUSH1 0x2e      46 fail 0 32
-                // |=< 0x03  0x37  0x37            JUMPI           0 32
-                // |   0x03  0x37  0x37            RETURN
-                // `=> 0x03  0x37  0x37            JUMPDEST
-                //     0x03  0x37  0x37            REVERT
+                //     0x00  0x6020          PUSH1 32        32
+                //     0x02  0x3d            RETURNDATASIZE  0 32
+                //     0x03  0x3d            RETURNDATASIZE  0 0 32
+                //     0x04  0x74XXXXXX..    PUSH20 XXXXXXX  factory 0 0 32
+                //     0x19  0x33            CALLER          caller factory 0 0 32
+                //     0x1a  0x18            XOR             invalid 0 0 32
+                //     0x1b  0x602e          PUSH1 0x2e      46 invalid 0 0 32
+                // ,=< 0x1d  0x57            JUMPI           0 0 32
+                // |   0x1e  0x36            CALLDATASIZE    cls 0 0 32
+                // |   0x1f  0x3d            RETURNDATASIZE  0 cls 0 0 32
+                // |   0x20  0x3d            RETURNDATASIZE  0 0 cls 0 0 32
+                // |   0x21  0x37            CALLDATACOPY    0 0 32
+                // |   0x22  0x36            CALLDATASIZE    cls 0 0 32
+                // |   0x23  0x3d            RETURNDATASIZE  0 cls 0 0 32
+                // |   0x24  0x34            CALLVALUE       val 0 cls 0 0 32
+                // |   0x25  0xf0            CREATE          addr 0 0 32
+                // |   0x26  0x80            DUP1            addr addr 0 0 32
+                // |   0x27  0x91            SWAP2           0 addr addr 0 32
+                // |   0x28  0x52            MSTORE          addr 0 32
+                // |   0x29  0x16            ISZERO          fail 0 32
+                // |   0x2a  0x602e          PUSH1 0x2e      46 fail 0 32
+                // |=< 0x2c  0x57            JUMPI           0 32
+                // |   0x2d  0xf3            RETURN
+                // `=> 0x2e  0x5b            JUMPDEST
+                //     0x2f  0xfd            REVERT
 
                 // Deploy the `Create3Proxy`
                 let proxy_addr
@@ -911,9 +949,9 @@ contract UniversalFactory {
                         let salt := keccak256(12, 52)
 
                         // Store `Create3Proxy` initcode in memory.
-                        mstore(0x0d, 0x7360a01b33173d5260306007f3)
-                        mstore(0x00, 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d)
-                        proxy_addr := create2(0, 0x00, 45, salt)
+                        mstore(0x0c, 0x60203d3d733d526030601bf3)
+                        mstore(0x00, 0x763318602e57363d3d37363d34f080915215602e57f35bfd602b523360145264)
+                        proxy_addr := create2(0, 0x00, 44, salt)
                     }
                     // Restore the memory state
                     mstore(0x00, mem00)
