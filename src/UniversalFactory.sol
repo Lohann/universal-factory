@@ -371,21 +371,28 @@ contract UniversalFactory {
                         // sufficient gas, to prevent an false negative when checking for EIP-1153 support.
                         if or(callvalue(), lt(gas(), 3000)) { revert(0, 0) }
 
-                        // Check if this EVM supports EIP-1153 TRANSIENT STORAGE.
-                        // Obs: This call cost 1000 gas if the EVM doesn't support EIP-1153, and 472 gas if it supports.
+                        // Load the current context from storage.
+                        // First try to retrieve the context using EIP-1153 TRANSIENT STORAGE, the result is automatically
+                        // stored in corresponding static memory.
+                        // Obs: This call use all 1000 gas if the EVM doesn't support EIP-1153, and 472 gas if it supports.
+                        // We provide an extra 100% gas margin in case those opcodes change their gas cost in the future.
                         let support_eip1153 := staticcall(1000, address(), 0, 0, 0x0180, 0x80)
 
                         // if it doesn't support EIP-1153, then load the context from storage.
                         if iszero(support_eip1153) {
-                            let ctx0 := sload(0)
-                            if xor(ctx0, not(0)) {
-                                mstore(0x0180, ctx0)
+                            let slot0 := sload(0)
+                            if xor(slot0, not(0)) {
+                                mstore(0x0180, slot0)
                                 mstore(0x01a0, sload(1))
-                                mstore(0x01c0, sload(2))
+
+                                // Once the `salt` zero is very common, we XOR it with the slot0 to reduce the likelihood
+                                // of storing a zero value, but it's ok if a zero salt is stored, because different than
+                                // `arguments[16..]`, the original value is restored at the end of the execution anyway.
+                                mstore(0x01c0, xor(sload(2), slot0))
 
                                 // Only load the value if the `HAS_VALUE` flag is set.
                                 // This flag is used to avoid storing a non-zero value in the storage.
-                                let has_value := and(ctx0, 0x01)
+                                let has_value := and(slot0, 0x01)
                                 if has_value { mstore(0x01e0, sload(3)) }
                             }
                         }
@@ -503,21 +510,26 @@ contract UniversalFactory {
                     // Revert if the selector is invalid
                     if iszero(valid) { revert(0, 0) }
 
-                    // Check if this EVM supports EIP-1153 TRANSIENT STORAGE.
-                    // Obs: This call cost 1000 gas if the EVM doesn't support EIP-1153, and 472 gas if it supports.
+                    ///////////////////////////////
+                    // Load the previous context //
+                    ///////////////////////////////
+                    // First try to retrieve the context using EIP-1153 TRANSIENT STORAGE, the result is automatically
+                    // stored in corresponding static memory.
+                    // Obs: This call use all 1000 gas if the EVM doesn't support EIP-1153, and 472 gas if it supports.
+                    // We provide an extra 100% gas margin in case those opcodes change their gas cost in the future.
                     let support_eip1153 := staticcall(1000, address(), 0, 0, 0x0180, 0x80)
 
-                    // if it doesn't support EIP-1153, then load the context from storage.
+                    // if it doesn't support EIP-1153, then load the previous context from storage.
                     if iszero(support_eip1153) {
-                        let ctx0 := sload(0)
-                        if xor(ctx0, not(0)) {
-                            mstore(0x0180, ctx0)
+                        let slot0 := sload(0)
+                        if xor(slot0, not(0)) {
+                            mstore(0x0180, slot0)
                             mstore(0x01a0, sload(1))
                             mstore(0x01c0, sload(2))
 
                             // Only load the value if the `HAS_VALUE` flag is set.
                             // This flag is used to avoid storing a non-zero value in the storage.
-                            let has_value := and(ctx0, 0x01)
+                            let has_value := and(slot0, 0x01)
                             if has_value { mstore(0x01e0, sload(3)) }
                         }
                     }
@@ -827,7 +839,9 @@ contract UniversalFactory {
                     // Store the context in the storage, skip `value` if zero.
                     sstore(0, slot0)
                     sstore(1, slot1)
-                    sstore(2, salt)
+
+                    // Once the `salt` zero is very common, xor it with the slot0 to reduce the likelihood of storing a zero value.
+                    sstore(2, xor(salt, slot0))
                     // When `msg.value > 0`, then the first bit of `flags` is set, so no need to store this value (saves ~2900 gas).
                     if value { sstore(3, value) }
                     if gt(args_len, 16) {
