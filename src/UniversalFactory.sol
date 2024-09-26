@@ -382,7 +382,7 @@ contract UniversalFactory {
                     // be called more frequently.
                     if eq(selector, 0xd0496d6a) {
                         // No value can be sent once it is a view function. It also make sure the call has
-                        // sufficient gas, to prevent an false negative when checking for EIP-1153 support.
+                        // sufficient gas, to prevent false negatives when checking for EIP-1153 support.
                         if or(callvalue(), lt(gas(), 3000)) { revert(0, 0) }
 
                         //////////////////////////
