@@ -99,7 +99,8 @@ interface IUniversalFactory {
         address indexed contractAddress,
         bytes32 indexed creationCodeHash,
         uint256 indexed salt,
-        bytes32 indexed dataHash,
+        address indexed sender,
+        bytes32 argumentsHash,
         bytes32 codeHash,
         bytes32 callbackHash,
         uint8 depth,
@@ -968,12 +969,16 @@ contract UniversalFactory {
                     let creation_code_hash := mload(0x40)
                     let contract_addr := mload(0)
                     let args_hash := mload(0x60)
-                    mstore(0x20, extcodehash(contract_addr))
-                    mstore(0x40, callback_hash)
                     let depth := mload(0xa0)
-                    mstore(0x60, depth)
-                    mstore(0x80, value)
-                    log4(0x20, 0x80, contract_addr, creation_code_hash, calldataload(0x04), args_hash)
+                    mstore(0x20, args_hash)
+                    mstore(0x40, extcodehash(contract_addr))
+                    mstore(0x60, callback_hash)
+                    mstore(0x80, depth)
+                    mstore(0xa0, value)
+                    log4(0x20, 0xa0, contract_addr, creation_code_hash, calldataload(0x04), caller())
+
+                    // Restore contract addr
+                    mstore(0, contract_addr)
                 }
 
                 // Call `callback` if provided
