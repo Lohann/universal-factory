@@ -404,7 +404,7 @@ contract UniversalFactory {
 
                                 // Once the `salt` zero is very common, we XOR it with the slot0 to reduce the likelihood
                                 // of storing a zero value, otherwise using the salt zero ended up using more gas than
-                                // using using a non-zero salt, which is inconvenient but not an issue at all.
+                                // using a non-zero salt, which is inconvenient but not an issue at all.
                                 // Notice the previous salt is always restored at the end of the execution. So this value
                                 // cannot influence any subsequent contract creation gas cost.
                                 mstore(0x01c0, xor(sload(2), slot0))
@@ -861,7 +861,7 @@ contract UniversalFactory {
 
                     // Once the `salt` zero is very common, we XOR it with the slot0 to reduce the likelihood
                     // of storing a zero value, otherwise using the salt zero ended up using more gas than
-                    // using using a non-zero salt, which is inconvenient but not an issue at all.
+                    // using a non-zero salt, which is inconvenient but not an issue at all.
                     // Notice the previous salt is always restored at the end of the execution. So this value
                     // cannot influence any subsequent contract creation gas cost.
                     sstore(2, xor(salt, slot0))
