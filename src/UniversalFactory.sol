@@ -230,11 +230,13 @@ interface IUniversalFactory {
 contract UniversalFactory {
     /**
      * @notice The Constructor is payable due Frontier EVM compatibility, once that EVM have the concept
-     * of existential deposit (ED), in this evm if you send a balance to a contract without ED, then
-     * `address(this).balance < msg.value`, which is impossible in most EVM's.
+     * of existential deposit (ED), in this evm if you send a balance to a contract without ED, then the
+     * ED will be discounted from the contract balance, as result `address(this).balance < msg.value`,
+     * which is impossible in standard EVM's clients.
+     * - https://github.com/polkadot-evm/frontier/blob/polkadot-v1.11.0/ts-tests/tests/test-balance.ts#L41
      *
-     * This contract works correctly in both EVM's, because it forwards the minimum value between
-     * `address(this).balance` and `msg.value` to the created contract.
+     * This contract works correctly in Frontier and standard EVM's, because it forwards the minimum value
+     * between `address(this).balance` and `msg.value` to the created contract.
      */
     constructor() payable {
         assembly {
