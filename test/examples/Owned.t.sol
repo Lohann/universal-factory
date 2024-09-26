@@ -80,6 +80,6 @@ contract OwnedTest is Test {
         Owned owned = Owned(FACTORY.create3(salt, creationCode, arguments));
         assertEq(owned.owner(), owner);
         assertEq(owned.value(), value);
-        assertEq(address(owned), FACTORY.computeCreate3Address(salt));
+        assertEq(address(owned), FACTORY.computeCreate3Address(owner, salt));
     }
 }

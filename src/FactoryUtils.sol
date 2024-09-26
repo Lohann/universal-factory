@@ -25,6 +25,25 @@ library FactoryUtils {
     /**
      * @dev Compute the create2 address of an contract created by `UniversalFactory`.
      */
+    function computeCreateAddress(IUniversalFactory factory, uint256 nonce) internal pure returns (address addr) {
+        assembly ("memory-safe") {
+            nonce := or(nonce, shl(7, iszero(nonce)))
+            // Cache the free memory pointer.
+            let free_ptr := mload(0x40)
+            {
+                mstore(0x14, factory)
+                mstore(0x00, 0xd694)
+                mstore8(0x34, nonce)
+                addr := shr(96, shl(96, keccak256(30, 23)))
+            }
+            // Restore the free memory pointer.
+            mstore(0x40, free_ptr)
+        }
+    }
+
+    /**
+     * @dev Compute the create2 address of an contract created by `UniversalFactory`.
+     */
     function computeCreate2Address(IUniversalFactory factory, uint256 salt, bytes memory initcode)
         internal
         pure
@@ -62,16 +81,41 @@ library FactoryUtils {
     }
 
     /**
+     * @dev Compute the create3 salt.
+     */
+    function computeCreate3Salt(address deployer, uint256 salt) internal pure returns (bytes32 create3salt) {
+        // The code below is equivalent to the Solidity code:
+        // ```solidity
+        // create3salt = keccak256(abi.encodePacked(deployer, salt));
+        // ```
+        assembly ("memory-safe") {
+            mstore(0x00, deployer)
+            mstore(0x20, salt)
+            create3salt := keccak256(12, 52)
+        }
+    }
+
+    /**
      * @dev Compute the create3 address of an contract created by `UniversalFactory`.
      */
-    function computeCreate3Address(IUniversalFactory factory, uint256 salt) internal pure returns (address addr) {
+    function computeCreate3Address(IUniversalFactory factory, address deployer, uint256 salt)
+        internal
+        pure
+        returns (address addr)
+    {
         // The code below is equivalent to the following Solidity code:
         // ```solidity
+        // salt = keccak256(abi.encodePacked(deployer, salt));
         // address create2addr = computeCreate2Address(factory, salt, PROXY_INITCODE_HASH);
         // bytes32 create3hash = keccak256(abi.encodePacked(bytes2(0xd694), create2addr, uint8(0x01)));
         // return address(uint160(uint256(create3hash)));
         // ```
         assembly ("memory-safe") {
+            // Compute keccak256(abi.encodePacked(deployer, salt));
+            mstore(0x00, deployer)
+            mstore(0x20, salt)
+            salt := keccak256(12, 52)
+
             // Cache the free memory pointer.
             let free_ptr := mload(0x40)
             {

@@ -5,12 +5,15 @@ import {Test, console} from "forge-std/Test.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {CreateKind, Context, IUniversalFactory, UniversalFactory} from "../src/UniversalFactory.sol";
+import {FactoryUtils} from "../src/FactoryUtils.sol";
 import {ReservedContract} from "./helpers/ReservedContract.t.sol";
 import {NestedCreate} from "./helpers/NestedCreate.t.sol";
 import {Inspector} from "./helpers/Inspector.t.sol";
 import {TestUtils} from "./helpers/TestUtils.sol";
 
 contract UniversalFactoryTest is Test {
+    using FactoryUtils for IUniversalFactory;
+
     IUniversalFactory public factory;
 
     function setUp() public {
@@ -88,7 +91,7 @@ contract UniversalFactoryTest is Test {
 
         // Should work if value is sent.
         ReservedContract deployed = ReservedContract(factory.create2{value: 1}(salt, initCode, "", initializer));
-        assertEq(address(deployed), create2addr(salt, initCode));
+        assertEq(address(deployed), factory.computeCreate2Address(salt, initCode));
 
         // Cannot initialize manually.
         vm.expectRevert("unauthorized");
@@ -176,7 +179,7 @@ contract UniversalFactoryTest is Test {
         vm.assume(selector != Inspector.context.selector);
 
         // Setup the test environment.
-        address sender = TestUtils.testAccount(100 ether);
+        address sender = TestUtils.testAccount(1000 ether);
         bytes memory initCode = abi.encodePacked(type(Inspector).creationCode, abi.encode(address(factory)));
         bytes32 creationCodeHash = keccak256(initCode);
         bytes32 runtimeCodehash = keccak256(type(Inspector).runtimeCode);
@@ -184,7 +187,7 @@ contract UniversalFactoryTest is Test {
         vm.startPrank(sender, sender);
 
         Context memory ctx = Context({
-            contractAddress: create3addr(salt),
+            contractAddress: factory.computeCreate3Address(sender, salt),
             sender: sender,
             callDepth: 1,
             kind: CreateKind.CREATE3,

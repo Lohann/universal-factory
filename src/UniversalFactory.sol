@@ -7,15 +7,11 @@
  *
  * Universal Factory is derived from EIP-2470 and EIP-3171, with an additional feature that allows the contract
  * constructor to read arguments without including it in the bytecode, this way custom arguments can be provided
- * and immutables can be set without influencing the final `create2` address.
- *
- * This contract is intented to be deployed in the same address on all networks using keyless deployment methods
- * such as Nick's method:
- * - https://weka.medium.com/how-to-send-ether-to-11-440-people-187e332566b7
- *
- * References:
+ * and immutables can be set without influencing the resulting `CREATE2` address.
  * - EIP-2470: https://eips.ethereum.org/EIPS/eip-2470
  * - EIP-3171: https://github.com/ethereum/EIPs/pull/3171
+ *
+ * This contract is intented to be deployed at the same address on all networks using keyless deployment method.
  * - Keyless Deployment Method: https://weka.medium.com/how-to-send-ether-to-11-440-people-187e332566b7
  *
  *  ██╗   ██╗███╗   ██╗██╗██╗   ██╗███████╗██████╗ ███████╗ █████╗ ██╗
@@ -151,6 +147,7 @@ interface IUniversalFactory {
     /**
      * Creates an contract at a deterministic address, the final address is derived exclusively from the `salt` field:
      * ```solidity
+     * salt = keccak256(abi.encodePacked(msg.sender, salt));
      * bytes32 proxyHash = 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a;
      * address proxy = address(uint160(uint256(keccak256(abi.encodePacked(uint8(0xff), address(factory), uint256(salt), proxyHash)))));
      * return address(uint160(uint256(keccak256(abi.encodePacked(uint16(0xd694), proxy, uint8(1))))));
@@ -191,7 +188,7 @@ interface IUniversalFactory {
      * @dev returns the current call context, returns zero for all fields if there's no context.
      * This function provides useful information that can be accessed inside the contract constructor.
      * Examples:
-     * The `Context.data` to set immutables in the contract without affect the final address.
+     * The `Context.data` to send arguments to the contract constructor without affect the resulting address.
      * The `Context.sender` to enforce the contract can only be created by a specific address, etc.
      * The `Context.callbackSelector` to enforce a specific function will be called after creation.
      */
@@ -217,21 +214,24 @@ contract UniversalFactory {
             //                       Context Storage Layout
             // | 32-bit |  22-bit  |   32-bit   |  160-bit   |  7-bit  | 3-bit |
             // +-+-+-+-+-+-+-+-+-+-+-+--+-+-+-+-+-+-+-+-+-+-+-++-+-+-+-+-+-+-+-+
-            // |  data  | data len |  selector  |  contract  |  depth  | flags | offset: 0
+            // |  args  | args.len |  selector  |  contract  |  depth  | flags | offset: 0
             // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-            // |    data (96-bit)    |             sender (160-bit)            | offset: 1
+            // |   args[..12] (96-bit)  |           sender (160-bit)           | offset: 1
             // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
             // |                             salt                              | offset: 2
             // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
             // |                             value                             | offset: 3
             // +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
-            // |                    keccak256(arguments)*                      | offset: 2**64 * depth
+            // |                       keccak256(args)*                        | offset: 2**64 * depth
             // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-            // |                       arguments[128..]                        | offset: 2**64 * depth + 1
-            // |                             ...                               | length: (arguments.length + 15) / 32
+            // |                          args[16..]                           | offset: 2**64 * depth + 1
+            // |                             ...                               | length: (args.length + 15) / 32
             // +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
             //
-            // If the EVM doesn't support EIP-1153 TRANSIENT STORAGE, then initialize the storage,
+            // - For `cancun`, the context is stored in `transient storage` using the `TSTORE` and `TLOAD` opcodes.
+            // - For `shanghai`, the context is stored in `regular storage` using the `SSTORE` and `SLOAD` opcodes.
+            //
+            // If the EVM doesn't support EIP-1153 TRANSIENT STORAGE, then it initialize the storage,
             // because the transition from empty to non-empty cost more gas than the transition
             // from non-empty to any, example:
             // - zero to non-zero      20000 gas
@@ -240,11 +240,11 @@ contract UniversalFactory {
             //
             // The original values are restored at the end of the execution.
             //
-            // # Motivation behind `keccak256(arguments)`.
+            // # Motivation behind `keccak256(args)`.
             // Different than `EIP-1153` transient storage, the regular storage is persisted between transactions, so to
             // guarantee an predictable gas cost, and prevent the previous calls to increase the gas cost of future calls, is
             // necessary to guarantee that all values stored are different than zero. The way we enforce this is by computing
-            // the keccak256 of `arguments`, and use it to XOR the bytes before store and after read it, so is infeseable
+            // the keccak256 of `args`, and use it to XOR the bytes before store and after read it, so is infeseable
             // to create an `argument` that can have 256 consecutive zeros when stored.
             let placeholder := not(0)
             sstore(0, placeholder)
@@ -276,8 +276,8 @@ contract UniversalFactory {
     }
 
     /**
-     * @dev This code must be compatible with `shangai` and `cancun` hardforks, so the `EIP-1153` opcodes must
-     * only be used when the EVM supports it, to do accomplish that, this contract calls itself and check the
+     * @dev This bytecode must be compatible with `shanghai` and `cancun` hardforks, the `EIP-1153` opcodes must
+     * only be used when the EVM supports `cancun`, to do accomplish that, this contract calls itself and check the
      * `TSTORE` and `TLOAD` opcode support, this check is done dynamically in case the EVM supports it in the future.
      *
      * @notice inline assembly is used for 3 main reason:
@@ -285,8 +285,8 @@ contract UniversalFactory {
      * 2. Guarantee an constant and predicatable gas cost, this contract heavily uses branchless code.
      * 3. Optimized code, to reduce the gas cost of the contract.
      *
-     * `Solidity` was chosen over `Yul` for portability and better developer experience, once currently you can't import
-     * Yul code in Solidity.
+     * `Solidity` was chosen over pure `Yul` for portability and better developer experience, once currently you can't
+     * import Yul code in Solidity.
      */
     fallback() external payable {
         // ---------------- Static Memory Layout ---------------
@@ -316,7 +316,13 @@ contract UniversalFactory {
             // transient storage is supported or not.
             // This check is done dynamically for each call, because even if the EVM
             // doesn't support this opcode right now, it may support it in the future.
-            if eq(caller(), address()) { return(0, tload(address())) }
+            if eq(caller(), address()) {
+                mstore(0x00, tload(0))
+                mstore(0x20, tload(1))
+                mstore(0x40, tload(2))
+                mstore(0x60, tload(3))
+                return(0, 0x80)
+            }
 
             // ------- BITFLAGS -------
             //    HAS_ARGUMENTS = 0x01
@@ -325,60 +331,54 @@ contract UniversalFactory {
             //  SUPPORT_EIP1153 = 0x08
             // ------------------------
             let bitflags
-
-            // Check if this EVM supports EIP-1153 TRANSIENT STORAGE.
-            // Obs: This call cost 300 gas if the EVM doesn't support EIP-1153, and 143 gas if it supports.
-            bitflags := staticcall(300, address(), 0, 0, 0, 0)
             {
-                ///////////////////////
-                // Validate selector //
-                ///////////////////////
                 {
                     let selector := shr(0xe0, calldataload(0))
 
-                    // `function context() external view returns (Context memory)`
+                    ///////////////////////////////////////////////////////////////
+                    // function context() external view returns (Context memory) //
+                    ///////////////////////////////////////////////////////////////
                     if eq(selector, 0xd0496d6a) {
-                        if callvalue() { revert(0, 0) }
+                        // No value can be sent once it is a view function. It also make sure the call has
+                        // sufficient gas, to prevent an false negative when checking for EIP-1153 support.
+                        if or(callvalue(), lt(gas(), 3000)) { revert(0, 0) }
 
-                        let ctx0, ctx1, salt, value
-                        {
-                            switch bitflags
-                            case 0 {
-                                ctx0 := sload(0)
-                                ctx1 := sload(1)
-                                salt := sload(2)
-                                value := 0
-                                let has_context := iszero(eq(ctx0, not(0)))
-                                if and(ctx0, has_context) { value := sload(3) }
-                                ctx0 := mul(ctx0, has_context)
-                                ctx1 := mul(ctx1, has_context)
-                                salt := mul(salt, has_context)
-                                value := mul(value, has_context)
-                            }
-                            default {
-                                ctx0 := tload(0)
-                                ctx1 := tload(1)
-                                salt := tload(2)
-                                value := tload(3)
-                                let has_context := gt(and(ctx0, 0x03f8), 0)
-                                ctx0 := mul(ctx0, has_context)
-                                ctx1 := mul(ctx1, has_context)
-                                salt := mul(salt, has_context)
-                                value := mul(value, has_context)
+                        // Check if this EVM supports EIP-1153 TRANSIENT STORAGE.
+                        // Obs: This call cost 1000 gas if the EVM doesn't support EIP-1153, and 472 gas if it supports.
+                        let support_eip1153 := staticcall(1000, address(), 0, 0, 0x0180, 0x80)
+
+                        // if it doesn't support EIP-1153, then load the context from storage.
+                        if iszero(support_eip1153) {
+                            let ctx0 := sload(0)
+                            if xor(ctx0, not(0)) {
+                                mstore(0x0180, ctx0)
+                                mstore(0x01a0, sload(1))
+                                mstore(0x01c0, sload(2))
+
+                                // Only load the value if the `HAS_VALUE` flag is set.
+                                // This flag is used to avoid storing a non-zero value in the storage.
+                                let has_value := and(ctx0, 0x01)
+                                if has_value { mstore(0x01e0, sload(3)) }
                             }
                         }
+
+                        // Load context from static memory
+                        let slot0 := mload(0x0180)
+                        let slot1 := mload(0x01a0)
+                        let salt := mload(0x01c0)
+                        let value := mload(0x01e0)
 
                         // Decode `call_flags`.
                         //   IS_CREATE3 := 0x04
                         // HAS_CALLBACK := 0x02
                         //    HAS_VALUE := 0x01
-                        let call_flags := and(ctx0, 0x07)
-                        let depth := and(shr(3, ctx0), 0x7f)
-                        let contract_addr := and(shr(10, ctx0), 0xffffffffffffffffffffffffffffffffffffffff)
-                        let callback_selector := shl(224, shr(170, ctx0))
-                        let arguments_len := and(shr(202, ctx0), 0x3fffff)
-                        let data := or(shl(160, shr(160, ctx1)), shl(128, shr(224, ctx0)))
-                        let sender := and(ctx1, 0xffffffffffffffffffffffffffffffffffffffff)
+                        let call_flags := and(slot0, 0x07)
+                        let depth := and(shr(3, slot0), 0x7f)
+                        let contract_addr := and(shr(10, slot0), 0xffffffffffffffffffffffffffffffffffffffff)
+                        let callback_selector := shl(224, shr(170, slot0))
+                        let args_len := and(shr(202, slot0), 0x3fffff)
+                        let data := or(shl(160, shr(160, slot1)), shl(128, shr(224, slot0)))
+                        let sender := and(slot1, 0xffffffffffffffffffffffffffffffffffffffff)
 
                         // discard `HAS_VALUE` flag
                         call_flags := shr(1, call_flags)
@@ -394,29 +394,30 @@ contract UniversalFactory {
                         mstore(0x00e0, value) // value
                         mstore(0x0100, salt) // salt
                         mstore(0x0120, 0x0120) // offset
-                        mstore(0x0140, arguments_len) // data_len
-                        mstore(0x0160, data) // initializer_val
+                        mstore(0x0140, args_len) // data_len
+                        mstore(0x0160, data) // arguments[..16]
 
-                        switch bitflags
+                        // If the args.length > 16, then copy the rest of the arguments to memory.
+                        switch support_eip1153
                         case 0 {
-                            if gt(arguments_len, 16) {
+                            if gt(args_len, 16) {
                                 // Copy `data[16..]` from storage to memory
                                 for {
-                                    let end := add(0x0160, arguments_len)
+                                    let end := add(0x0160, args_len)
                                     let ptr := 0x170
                                     let offset := shl(64, depth)
-                                    let arguments_hash := sload(offset)
+                                    let args_hash := sload(offset)
                                     offset := add(offset, 0x01)
                                 } lt(ptr, end) {
                                     ptr := add(ptr, 0x20)
                                     offset := add(offset, 0x01)
-                                } { mstore(ptr, xor(sload(offset), arguments_hash)) }
+                                } { mstore(ptr, xor(sload(offset), args_hash)) }
                             }
                         }
                         default {
                             // Copy `data[16..]` from transient storage to memory
                             for {
-                                let end := add(0x0160, arguments_len)
+                                let end := add(0x0160, args_len)
                                 let ptr := 0x170
                                 let offset := shl(64, depth)
                             } lt(ptr, end) {
@@ -425,64 +426,90 @@ contract UniversalFactory {
                             } { mstore(ptr, tload(offset)) }
                         }
 
-                        // Remove any non-zero padding
-                        mstore(add(0x0160, arguments_len), 0)
+                        // Remove any non-zero from padding bytes
+                        mstore(add(0x0160, args_len), 0)
                         // Return an 32-byte aligned result
-                        return(0x00, add(0x0160, and(add(arguments_len, 0x1f), 0xffffffffffffffe0)))
+                        return(0x00, add(0x0160, and(add(args_len, 0x1f), 0xffffffffffffffe0)))
                     }
 
-                    // Check if the method contains an `callback`
-                    // - function create2(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
-                    // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata data, bytes calldata callback)
-                    let has_callback := or(eq(selector, 0xe45c31ee), eq(selector, 0x1f7a56c0))
+                    ///////////////////////////
+                    // Validate the selector //
+                    ///////////////////////////
 
-                    // Check if the method contains an `data` but not an `callback`
-                    // - function create2(uint256 salt, bytes calldata creationCode, bytes calldata data)
-                    // - function create3(uint256 salt, bytes calldata creationCode, bytes calldata data)
-                    let has_args := or(has_callback, or(eq(selector, 0x579da0bf), eq(selector, 0xb5164ce9)))
+                    // The 5 least significant bits of the selectors are unique, this allow an efficient selector
+                    // verification using less than 100 gas.
+                    // |               FUNCTION             |  SELECTOR  |       suffix  (5-bit)     | index | bitflags |
+                    // | create2(uint256,bytes,bytes,bytes) | 0xe45c31ee |  0xe45c31ee & 0x1f == 14  |   25  |    011   |
+                    // | create3(uint256,bytes,bytes,bytes) | 0x1f7a56c0 |  0x1f7a56c0 & 0x1f ==  0  |   26  |    111   |
+                    // | create2(uint256,bytes,bytes)       | 0x579da0bf |  0x579da0bf & 0x1f == 31  |   27  |    001   |
+                    // | create3(uint256,bytes,bytes)       | 0xb5164ce9 |  0xb5164ce9 & 0x1f ==  9  |   28  |    101   |
+                    // | create2(uint256,bytes)             | 0xfe984079 |  0xfe984079 & 0x1f == 25  |   29  |    000   |
+                    // | create3(uint256,bytes)             | 0x53ca4842 |  0x53ca4842 & 0x1f ==  2  |   30  |    100   |
+                    // | context()                          | 0xd0496d6a |  0xd0496d6a & 0x1f == 10  |   31  |    N/A   |
 
-                    // Check if the method doesn't contain an `data` or `callback`
-                    // - function create2(uint256 salt, bytes calldata creationCode)
-                    // - function create3(uint256 salt, bytes calldata creationCode)
-                    let is_simple := or(eq(selector, 0xfe984079), eq(selector, 0x53ca4842))
-
-                    // Check if the selector is `create3(...)`
-                    let is_create3 :=
-                        or(or(eq(selector, 0x53ca4842), eq(selector, 0xb5164ce9)), eq(selector, 0x1f7a56c0))
-
-                    // Check if the selector is valid
-                    let valid := or(is_simple, has_args)
+                    // Convert the 5-bit suffix into an index using byte lookup.
+                    let index
                     {
-                        // Check the minimal calldatasize when `data` or `callback` are provided
-                        let min_calldatasize := add(0x43, shl(5, add(has_args, has_callback)))
-                        valid := and(valid, gt(calldatasize(), min_calldatasize))
+                        let suffix := and(selector, 0x1f)
+                        index := byte(suffix, 0x1a001e0000000000001c1f00000019000000000000000000001d00000000001b)
                     }
 
-                    // Set `deploy_proxy`, `has_callback` and `has_args` flags
-                    bitflags := or(shl(1, bitflags), is_create3)
-                    bitflags := or(shl(1, bitflags), has_callback)
-                    bitflags := or(shl(1, bitflags), has_args)
-
-                    if iszero(valid) {
-                        // Revert if the selector is invalid
-                        revert(0, 0)
+                    // Extract the selector at the expected index, where 0xd0496d6a53ca4842fe984079b5164ce9579da0bf1f7a56c0e45c31ee
+                    // is simply the selectors concatenated.
+                    let expected_selector
+                    {
+                        let shift := byte(index, 0x20406080a0c0)
+                        expected_selector := shr(shift, 0xd0496d6a53ca4842fe984079b5164ce9579da0bf1f7a56c0e45c31ee)
+                        expected_selector := and(expected_selector, 0xffffffff)
                     }
+
+                    // Check if the `selector` matches the `expected_selector`
+                    let valid := eq(selector, expected_selector)
+
+                    // Validate the calldatasize against the minimal size
+                    {
+                        let min_calldata_size := byte(index, 0x83836363434303)
+                        valid := and(valid, gt(calldatasize(), min_calldata_size))
+                        mstore(0x00, sub(min_calldata_size, 4))
+                    }
+
+                    // Revert if the selector is invalid
+                    if iszero(valid) { revert(0, 0) }
+
+                    // Check if this EVM supports EIP-1153 TRANSIENT STORAGE.
+                    // Obs: This call cost 1000 gas if the EVM doesn't support EIP-1153, and 472 gas if it supports.
+                    bitflags := staticcall(1000, address(), 0, 0, 0x0180, 0x80)
+
+                    // if it doesn't support EIP-1153, then load the context from storage.
+                    if iszero(bitflags) {
+                        let ctx0 := sload(0)
+                        if xor(ctx0, not(0)) {
+                            mstore(0x0180, ctx0)
+                            mstore(0x01a0, sload(1))
+                            mstore(0x01c0, sload(2))
+
+                            // Only load the value if the `HAS_VALUE` flag is set.
+                            // This flag is used to avoid storing a non-zero value in the storage.
+                            let has_value := and(ctx0, 0x01)
+                            if has_value { mstore(0x01e0, sload(3)) }
+                        }
+                    }
+
+                    // Set the bitflags `IS_CREATE3`, `HAS_CALLBACK` and `HAS_ARGUMENTS` using byte lookup.
+                    bitflags := or(shl(3, bitflags), byte(index, 0x03070105000400))
                 }
 
                 let valid
                 /////////////////////////////
                 // Validate `creationCode` //
                 /////////////////////////////
+                let min_calldata_size := mload(0x00)
                 {
                     // creationcode_ptr <= 0xffffffffffffffff
                     let creationcode_ptr := calldataload(0x24)
                     valid := lt(creationcode_ptr, 0x010000000000000000)
-                    // creationcode_ptr >= 0x3f
-                    {
-                        let data_and_callback := and(bitflags, 0x03)
-                        data_and_callback := xor(data_and_callback, shr(1, data_and_callback))
-                        valid := and(valid, gt(creationcode_ptr, add(0x3f, shl(5, data_and_callback))))
-                    }
+                    // creationcode_ptr > min_calldata_size
+                    valid := and(valid, gt(creationcode_ptr, min_calldata_size))
 
                     // calldatasize > (creationcode_ptr + 0x1f)
                     creationcode_ptr := add(creationcode_ptr, 0x04)
@@ -508,40 +535,36 @@ contract UniversalFactory {
                 // Validate `arguments` //
                 //////////////////////////
                 {
-                    // initializer_ptr <= 0xffffffffffffffff
-                    let arguments_ptr := calldataload(0x44)
+                    // args_ptr <= 0xffffffffffffffff
+                    let args_ptr := calldataload(0x44)
                     let has_args := and(bitflags, 0x01)
-                    let valid_initializer := and(has_args, lt(arguments_ptr, 0x010000000000000000))
-                    // initializer_ptr > (has_callback ? 0x7f : 0x5f)
-                    {
-                        let has_callback := shl(4, and(bitflags, 0x02))
-                        valid_initializer := and(valid_initializer, gt(arguments_ptr, add(has_callback, 0x5f)))
-                    }
+                    let valid_args := and(has_args, lt(args_ptr, 0x010000000000000000))
+                    // args_ptr > min_calldata_size
+                    valid_args := and(valid_args, gt(args_ptr, min_calldata_size))
 
-                    // calldatasize > (initializer_ptr + 0x1f)
-                    arguments_ptr := add(arguments_ptr, 0x04)
-                    valid_initializer := and(valid_initializer, slt(add(arguments_ptr, 0x1f), calldatasize()))
+                    // calldatasize > (args_ptr + 0x1f)
+                    args_ptr := add(args_ptr, 0x04)
+                    valid_args := and(valid_args, slt(add(args_ptr, 0x1f), calldatasize()))
 
-                    // initializer_len <= 0x3fffff
-                    let arguments_len := calldataload(arguments_ptr)
-                    valid_initializer := and(valid_initializer, lt(arguments_len, 0x400000))
-                    arguments_ptr := add(arguments_ptr, 0x20)
+                    // args_len <= 0x3fffff
+                    let args_len := calldataload(args_ptr)
+                    valid_args := and(valid_args, lt(args_len, 0x400000))
+                    args_ptr := add(args_ptr, 0x20)
 
-                    // (initializer_ptr + initializer_len + 0x20) >= calldatasize
-                    valid_initializer :=
-                        and(valid_initializer, iszero(gt(add(arguments_ptr, arguments_len), calldatasize())))
+                    // (args_ptr + args_len + 0x20) >= calldatasize
+                    valid_args := and(valid_args, iszero(gt(add(args_ptr, args_len), calldatasize())))
 
-                    // Set arguments_ptr and arguments_len to zero if there's no initializer
-                    valid_initializer := and(valid_initializer, has_args)
-                    arguments_ptr := mul(arguments_ptr, valid_initializer)
-                    arguments_len := mul(arguments_len, valid_initializer)
+                    // Set args_ptr and args_len to zero if there's no arguments
+                    valid_args := and(valid_args, has_args)
+                    args_ptr := mul(args_ptr, valid_args)
+                    args_len := mul(args_len, valid_args)
 
-                    // store the `arguments_ptr` and `arguments_len` at static memory 0x0100-0x0120
-                    mstore(0x0100, arguments_ptr)
-                    mstore(0x0120, arguments_len)
+                    // store the `args_ptr` and `args_len` at static memory 0x0100-0x0120
+                    mstore(0x0100, args_ptr)
+                    mstore(0x0120, args_len)
 
-                    // If the call has no initializer, it is always valid.
-                    valid := and(valid, or(valid_initializer, iszero(has_args)))
+                    // If has no arguments, it is always valid.
+                    valid := and(valid, or(valid_args, iszero(has_args)))
                 }
 
                 /////////////////////////
@@ -585,38 +608,8 @@ contract UniversalFactory {
             }
 
             {
-                let slot0
-
-                // Load previous context and salt, they are restored at the end of the execution,
-                // to guarantee nested calls to this contract are consistent.
-                switch shr(3, bitflags)
-                case 0 {
-                    // Load `slot0` from the storage.
-                    slot0 := sload(0)
-
-                    // Check if the context exists (depth > 0)
-                    let exists := iszero(eq(slot0, not(0)))
-
-                    // Store previous context in static memory.
-                    slot0 := mul(slot0, exists)
-                    mstore(0x0180, slot0)
-                    mstore(0x01a0, mul(sload(1), exists))
-                    mstore(0x01c0, mul(sload(2), exists))
-                    mstore(0x01e0, 0)
-                    if and(slot0, 0x01) { mstore(0x01e0, sload(3)) }
-                }
-                default {
-                    // Load `slot0` from transient storage
-                    slot0 := tload(0)
-
-                    // Store previous context in static memory.
-                    mstore(0x0180, slot0)
-                    mstore(0x01a0, tload(1))
-                    mstore(0x01c0, tload(2))
-                    mstore(0x01e0, tload(3))
-                }
-
                 // Decode the previous `depth`.
+                let slot0 := mload(0x0180)
                 let depth := and(shr(3, slot0), 0x7f)
 
                 // The `depth` must be less than 127, which is the maximum number of nested calls before overflow.
@@ -642,19 +635,19 @@ contract UniversalFactory {
             // Compute Arguments Hash //
             ////////////////////////////
             {
-                let arguments_ptr := mload(0x0100)
-                let arguments_len := mload(0x0120)
+                let args_ptr := mload(0x0100)
+                let args_len := mload(0x0120)
                 // Copy `arguments` to memory
-                calldatacopy(0x0200, arguments_ptr, arguments_len)
+                calldatacopy(0x0200, args_ptr, args_len)
 
                 // Compute the keccak256 hash of the `arguments`
-                let arguments_hash := keccak256(0x0200, arguments_len)
+                let args_hash := keccak256(0x0200, args_len)
 
                 // Set zero if there's no `arguments`.
-                arguments_hash := mul(arguments_hash, gt(arguments_ptr, 0))
+                args_hash := mul(args_hash, gt(args_ptr, 0))
 
                 // Save the `arguments_hash` in the static memory
-                mstore(0x60, arguments_hash)
+                mstore(0x60, args_hash)
             }
 
             {
@@ -670,12 +663,9 @@ contract UniversalFactory {
                     ////////////////////////////////////////////////////////////////////
                     //                      Compute CREATE2 address                   //
                     ////////////////////////////////////////////////////////////////////
-                    mstore(0x00, or(address(), 0xff0000000000000000000000000000000000000000))
+                    addr := or(address(), 0xff0000000000000000000000000000000000000000)
+                    mstore(0x00, addr)
                     mstore(0x20, calldataload(0x04))
-                    let proxy_hash := 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a
-                    mstore(0x40, proxy_hash)
-                    let proxy_addr := and(keccak256(11, 85), 0xffffffffffffffffffffffffffffffffffffffff)
-
                     let creationcode_hash := keccak256(0x0200, creationcode_len)
                     mstore(0x40, creationcode_hash)
                     let create2_addr := and(keccak256(11, 85), 0xffffffffffffffffffffffffffffffffffffffff)
@@ -683,16 +673,36 @@ contract UniversalFactory {
                     ////////////////////////////////////////////////////////////////////
                     //                      Compute CREATE3 address                   //
                     ////////////////////////////////////////////////////////////////////
+                    // Compute `CREATE3` salt, which is `keccak25(abi.encodePacked(msg.sender, salt))`
+                    mstore(0x00, caller())
+                    mstore(0x20, calldataload(0x04))
+                    mstore(0x20, keccak256(12, 52))
+
+                    // Compute `CREATE3` proxy address, which is `keccak256(abi.encodePacked(0xff, address(this), create3salt, proxyHash))`
+                    mstore(0x00, addr)
+                    let proxy_hash := 0xda812570be8257354a14ed469885e4d206be920835861010301b25f5c180427a
+                    mstore(0x40, proxy_hash)
+                    let proxy_addr := and(keccak256(11, 85), 0xffffffffffffffffffffffffffffffffffffffff)
+
+                    // Compute `CREATE3` contract address, which is `keccak256(abi.encodePacked(hex"d694", proxyAddr, hex"01"))`
                     mstore(0x00, or(0xd694000000000000000000000000000000000000000001, shl(8, proxy_addr)))
                     let create3_addr := and(keccak256(0x09, 23), 0xffffffffffffffffffffffffffffffffffffffff)
 
-                    let is_create3 := and(shr(2, bitflags), 1)
-                    addr := xor(create2_addr, mul(xor(create3_addr, create2_addr), is_create3))
+                    //////////////////////
+                    //     Validate     //
+                    //////////////////////
 
-                    // Validate address and initcode
+                    // Validate if the contract exists and if the `creationCode` is not the `Create3Proxy` contract.
+                    //
+                    // IMPORTANT: The `Create3Proxy` creationCode CANNOT be used in `create2(...)` functions, otherwise
+                    // anyone can deploy an contract in a address that belongs to another `msg.sender`.
+                    // If someone attempt it, this contract reverts with `ReservedInitCode` error.
                     {
-                        // The proxy creation code is reserved only for `create3` method
-                        let invalid_init_code := eq(creationcode_hash, proxy_hash)
+                        let is_create3 := and(shr(2, bitflags), 1)
+                        addr := xor(create2_addr, mul(xor(create3_addr, create2_addr), is_create3))
+
+                        // The proxy creation code is reserved only for `create3` methods
+                        let invalid_init_code := and(eq(creationcode_hash, proxy_hash), iszero(is_create3))
                         // The contract must not exist
                         let contract_exists := extcodesize(addr)
 
@@ -708,7 +718,8 @@ contract UniversalFactory {
                         }
                     }
 
-                    // Store final contract address at 0x00
+                    // Store final contract address, proxy address and creationCode in
+                    // their respective static memory slots.
                     mstore(0x00, addr)
                     mstore(0x20, proxy_addr)
                     mstore(0x40, creationcode_hash)
@@ -721,34 +732,34 @@ contract UniversalFactory {
                 //                       Context Storage Layout
                 // | 32-bit |  22-bit  |   32-bit   |  160-bit   |  7-bit  | 3-bit |
                 // +-+-+-+-+-+-+-+-+-+-+-+--+-+-+-+-+-+-+-+-+-+-+-++-+-+-+-+-+-+-+-+
-                // |  data  | data len |  selector  |  contract  |  depth  | flags | offset: 0
+                // |  args  | args.len |  selector  |  contract  |  depth  | flags | offset: 0
                 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-                // |    data (96-bit)    |             sender (160-bit)            | offset: 1
+                // |   args[..12] (96-bit)  |           sender (160-bit)           | offset: 1
                 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
                 // |                             salt                              | offset: 2
                 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
                 // |                             value                             | offset: 3
                 // +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
-                // |                    keccak256(arguments)*                      | offset: 2**64 * depth
+                // |                       keccak256(args)*                        | offset: 2**64 * depth
                 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-                // |                       arguments[128..]                        | offset: 2**64 * depth + 1
-                // |                             ...                               | length: (arguments.length + 15) / 32
+                // |                          args[16..]                           | offset: 2**64 * depth + 1
+                // |                             ...                               | length: (args.length + 15) / 32
                 // +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 
-                let arguments_ptr := mload(0x0100)
-                let arguments_len := mload(0x0120)
+                let args_ptr := mload(0x0100)
+                let args_len := mload(0x0120)
 
                 let slot0
                 // Encode `data[96..128]` (32 bits)
                 {
                     let has_args := and(bitflags, 0x01)
-                    let data := shr(224, shl(96, calldataload(arguments_ptr)))
+                    let data := shr(224, shl(96, calldataload(args_ptr)))
                     data := mul(data, has_args)
                     slot0 := data
                 }
                 // Encode data_len (22 bits)
                 // Obs: validated previously, so is always less than 2**22
-                slot0 := or(shl(22, slot0), arguments_len)
+                slot0 := or(shl(22, slot0), args_len)
                 // Encode selector (32 bits)
                 {
                     let callback_ptr := mload(0x0140)
@@ -765,7 +776,7 @@ contract UniversalFactory {
                 slot0 := or(shl(3, slot0), or(and(bitflags, 0x06), gt(value, 0)))
 
                 // Encode `data[..96]` (96 bit) + sender (160 bit)
-                let slot1 := or(shl(160, shr(160, calldataload(arguments_ptr))), caller())
+                let slot1 := or(shl(160, shr(160, calldataload(args_ptr))), caller())
                 // Encode salt (256 bits)
                 let salt := calldataload(0x04)
 
@@ -779,22 +790,22 @@ contract UniversalFactory {
                     sstore(2, salt)
                     // When `msg.value > 0`, then the first bit of `flags` is set, so no need to store this value (saves ~2900 gas).
                     if value { sstore(3, value) }
-                    if gt(arguments_len, 16) {
+                    if gt(args_len, 16) {
                         // When `arguments.length > 16`, we also store the argument hash in the context.
-                        let arguments_hash := mload(0x60)
+                        let args_hash := mload(0x60)
 
                         /// If `data.length > 16`, then store the remaining bytes in the transient storage,
                         // starting at index `2**64 * depth`.
                         for {
-                            let end := add(arguments_ptr, arguments_len)
-                            let ptr := add(arguments_ptr, 16)
+                            let end := add(args_ptr, args_len)
+                            let ptr := add(args_ptr, 16)
                             let offset := shl(64, depth)
-                            sstore(offset, arguments_hash)
+                            sstore(offset, args_hash)
                             offset := add(offset, 0x01)
                         } lt(ptr, end) {
                             ptr := add(ptr, 0x20)
                             offset := add(offset, 0x01)
-                        } { sstore(offset, xor(calldataload(ptr), arguments_hash)) }
+                        } { sstore(offset, xor(calldataload(ptr), args_hash)) }
                     }
                 }
                 default {
@@ -808,8 +819,8 @@ contract UniversalFactory {
                     // If `data.length > 16`, then store the remaining bytes in the transient storage,
                     // starting at index `2**64 * depth`.
                     for {
-                        let end := add(arguments_ptr, arguments_len)
-                        let ptr := add(arguments_ptr, 16)
+                        let end := add(args_ptr, args_len)
+                        let ptr := add(args_ptr, 16)
                         let offset := shl(64, depth)
                     } lt(ptr, end) {
                         ptr := add(ptr, 0x20)
@@ -893,11 +904,15 @@ contract UniversalFactory {
                     let mem00 := mload(0x00)
                     let mem20 := mload(0x20)
                     {
+                        // Compute `CREATE3` salt, which is `keccak25(abi.encodePacked(msg.sender, salt))`
+                        mstore(0x00, caller())
+                        mstore(0x20, calldataload(0x04))
+                        let salt := keccak256(12, 52)
+
                         // Store `Create3Proxy` initcode in memory.
                         mstore(0x0d, 0x7360a01b33173d5260306007f3)
                         mstore(0x00, 0x763318602e57363d3d37363d34f080915215602e57f35bfd6017526460203d3d)
-                        // Deploy contract or Proxy, depending if `is_create3` is enabled.
-                        proxy_addr := create2(mul(value, iszero(and(bitflags, 0x06))), 0x00, 45, calldataload(0x04))
+                        proxy_addr := create2(0, 0x00, 45, salt)
                     }
                     // Restore the memory state
                     mstore(0x00, mem00)
@@ -917,18 +932,14 @@ contract UniversalFactory {
 
                 // Call the `Create3Proxy` to deploy the desired contract at deterministic address.
                 let creationcode_len := mload(0xe0)
-                let success :=
-                    call(
-                        gas(),
-                        proxy_addr,
-                        mul(value, iszero(and(bitflags, 0x02))), // Check if the flag HAS_CALLBACK is disabled
-                        0x0200,
-                        creationcode_len,
-                        0x00,
-                        0x20
-                    )
 
-                // Comapare computed address and actual address
+                // Only send funds if there's no callback
+                let no_callback := iszero(and(bitflags, 0x02))
+
+                // Deploy the contract using `Create3Proxy`
+                let success := call(gas(), proxy_addr, mul(value, no_callback), 0x0200, creationcode_len, 0x00, 0x20)
+
+                // Compare the computed address and actual address
                 if or(iszero(success), xor(computed_addr, mload(0))) {
                     // 0x08fde50a -> Create3Failed()
                     mstore(0x00, 0x08fde50a)
@@ -956,25 +967,24 @@ contract UniversalFactory {
                     // emit ContractCreated(contractAddress, creationCodeHash, salt, dataHash, codeHash, callbackHash, depth, value)
                     let creation_code_hash := mload(0x40)
                     let contract_addr := mload(0)
-                    let arguments_hash := mload(0x60)
+                    let args_hash := mload(0x60)
                     mstore(0x20, extcodehash(contract_addr))
                     mstore(0x40, callback_hash)
                     let depth := mload(0xa0)
                     mstore(0x60, depth)
                     mstore(0x80, value)
-                    log4(0x20, 0x80, contract_addr, creation_code_hash, calldataload(0x04), arguments_hash)
+                    log4(0x20, 0x80, contract_addr, creation_code_hash, calldataload(0x04), args_hash)
                 }
 
                 // Call `callback` if provided
                 if callback_ptr {
-                    // Call initializer
                     if iszero(call(gas(), mload(0), value, 0x0200, callback_len, 0, 0)) {
                         mstore(0x00, 0x30b9b6dd)
                         // error offset
                         mstore(0x20, 0x20)
                         // error length
                         mstore(0x40, returndatasize())
-                        // cleanup padding bytes, in case it has initializer bytes
+                        // cleanup padding bytes, in case it has non-zero bytes
                         mstore(add(0x60, returndatasize()), 0x00)
                         // Copy revert data to memory
                         returndatacopy(0x60, 0, returndatasize())
