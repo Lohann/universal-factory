@@ -410,7 +410,8 @@ contract UniversalFactory {
                                 mstore(0x01c0, xor(sload(2), slot0))
 
                                 // Only load the value if the `HAS_VALUE` flag is set.
-                                // This flag is used to avoid storing a non-zero value in the storage.
+                                // This flag is used to avoid storing a zero value in the storage, it also saves one storage
+                                // write/read when no value is provided (saves ~2900 gas).
                                 let has_value := and(slot0, 0x01)
                                 if has_value { mstore(0x01e0, sload(3)) }
                             }
