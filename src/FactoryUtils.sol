@@ -67,13 +67,17 @@ library FactoryUtils {
     /**
      * @dev Compute the create2 address of an contract created by `UniversalFactory`.
      */
-    function computeCreateAddress(IUniversalFactory factory, uint256 nonce) internal pure returns (address addr) {
+    function computeCreateAddress(IUniversalFactory, address deployer, uint256 nonce)
+        internal
+        pure
+        returns (address addr)
+    {
         assembly ("memory-safe") {
             nonce := or(nonce, shl(7, iszero(nonce)))
             // Cache the free memory pointer.
             let free_ptr := mload(0x40)
             {
-                mstore(0x14, factory)
+                mstore(0x14, deployer)
                 mstore(0x00, 0xd694)
                 mstore8(0x34, nonce)
                 addr := shr(96, shl(96, keccak256(30, 23)))

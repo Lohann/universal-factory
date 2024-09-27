@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import {Context, IUniversalFactory} from "@universal-factory/UniversalFactory.sol";
 
 contract Owned {
-    IUniversalFactory internal constant FACTORY = IUniversalFactory(0x000000000000E27221183E5C85058c31DF6a7D01);
+    IUniversalFactory internal constant FACTORY = IUniversalFactory(0x0000000000001C4Bf962dF86e38F0c10c7972C6E);
     uint256 private immutable IMMUTABLE_VALUE;
     address private _owner;
 
