@@ -61,7 +61,8 @@ contract NestedCreate {
             assembly {
                 codecopy(add(creationCode, 0x20), 0, codesize())
             }
-            uint256 salt = ctx.salt + 0x0101010101010101010101010101010101010101010101010101010101010101;
+            bytes32 salt =
+                bytes32(uint256(ctx.salt) + 0x0101010101010101010101010101010101010101010101010101010101010101);
 
             address child;
             if (ctx.hasCallback) {

@@ -36,7 +36,7 @@ contract OwnedTest is Test {
     /**
      * @dev The caller must be the OWNER account.
      */
-    function test_failWrongOwner(uint256 salt, address owner) external {
+    function test_failWrongOwner(bytes32 salt, address owner) external {
         address sender = TestUtils.testAccount(100 ether);
         bytes memory creationCode = bytes.concat(type(Owned).creationCode, abi.encode(owner));
         vm.prank(sender, sender);
@@ -47,7 +47,7 @@ contract OwnedTest is Test {
     /**
      * @dev Must fail if don't provide an `uint256` argument.
      */
-    function test_failWithoutArguments(uint256 salt) external {
+    function test_failWithoutArguments(bytes32 salt) external {
         address owner = TestUtils.testAccount(100 ether);
         bytes memory creationCode = bytes.concat(type(Owned).creationCode, abi.encode(owner));
         vm.prank(owner, owner);
@@ -58,7 +58,7 @@ contract OwnedTest is Test {
     /**
      * @dev Only works when the provided owned == ctx.sender, and provide an UINT256 argument.
      */
-    function test_create2Works(uint256 salt, uint256 value) external {
+    function test_create2Works(bytes32 salt, uint256 value) external {
         address owner = TestUtils.testAccount(100 ether);
         bytes memory creationCode = bytes.concat(type(Owned).creationCode, abi.encode(owner));
         bytes memory arguments = abi.encode(value);
@@ -72,7 +72,7 @@ contract OwnedTest is Test {
     /**
      * @dev Only works when the provided owned == ctx.sender, and provide an UINT256 argument.
      */
-    function test_create3Works(uint256 salt, uint256 value) external {
+    function test_create3Works(bytes32 salt, uint256 value) external {
         address owner = TestUtils.testAccount(100 ether);
         bytes memory creationCode = bytes.concat(type(Owned).creationCode, abi.encode(owner));
         bytes memory arguments = abi.encode(value);

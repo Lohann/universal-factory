@@ -8,7 +8,7 @@ import {IUniversalFactory, Context} from "../../src/UniversalFactory.sol";
  */
 contract ReservedContract {
     IUniversalFactory private immutable FACTORY;
-    uint256 public immutable NONCE;
+    bytes32 public immutable NONCE;
 
     constructor(IUniversalFactory factory, address owner) {
         Context memory ctx = factory.context();

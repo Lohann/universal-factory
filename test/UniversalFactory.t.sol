@@ -53,7 +53,7 @@ contract UniversalFactoryTest is Test {
 
     function test_create2() external {
         address sender = TestUtils.testAccount(100 ether);
-        uint256 salt = 0x7777777777777777777777777777777777777777777777777777777777777777;
+        bytes32 salt = 0x7777777777777777777777777777777777777777777777777777777777777777;
         bytes memory initCode =
             abi.encodePacked(type(ReservedContract).creationCode, abi.encode(address(factory), sender));
         vm.startPrank(sender, sender);
@@ -81,7 +81,7 @@ contract UniversalFactoryTest is Test {
         deployed.initialize();
     }
 
-    function test_fuzzCreate2(uint256 salt, bytes calldata init) external {
+    function test_fuzzCreate2(bytes32 salt, bytes calldata init) external {
         // we assume the initializer is not the `context()` selector
         bytes4 selector;
         assembly {
@@ -162,7 +162,7 @@ contract UniversalFactoryTest is Test {
         _inpectContext(ctx, inspector, 1 ether);
     }
 
-    function test_fuzzCreate3(uint256 salt, bytes calldata init) external {
+    function test_fuzzCreate3(bytes32 salt, bytes calldata init) external {
         // we assume the initializer is not the `context()` selector
         bytes4 selector;
         assembly {
@@ -267,7 +267,7 @@ contract UniversalFactoryTest is Test {
 
         // Record the logs and deploy the contract
         vm.recordLogs();
-        NestedCreate deployed = NestedCreate(payable(factory.create2(salt, initCode, params, callback)));
+        NestedCreate deployed = NestedCreate(payable(factory.create2(bytes32(salt), initCode, params, callback)));
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(address(deployed).code, type(NestedCreate).runtimeCode, "runtime bytecode mismatch");
         assertEq(logs.length, maxDepth, "logs.length != maxDepth");
@@ -290,7 +290,7 @@ contract UniversalFactoryTest is Test {
 
             // Update the `ctx` for the next child contract.
             ctx.callDepth += 1;
-            ctx.salt += salt;
+            ctx.salt = bytes32(uint256(ctx.salt) + salt);
             ctx.sender = ctx.contractAddress;
             ctx.contractAddress = factory.computeCreate2Address(ctx.salt, creationCodeHash);
             ctx.data = params;
@@ -356,6 +356,6 @@ contract UniversalFactoryTest is Test {
 
         // Must fail when the depth is greater than 127.
         vm.expectRevert(IUniversalFactory.Create2Failed.selector);
-        NestedCreate(payable(factory.create2(0x0101, initCode, params, callback)));
+        NestedCreate(payable(factory.create2(bytes32(uint256(0x0101)), initCode, params, callback)));
     }
 }

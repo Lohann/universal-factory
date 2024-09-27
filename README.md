@@ -47,7 +47,7 @@ contract DeplotOwned is Script {
     function run() external {
         // SALT=1234 VALUE=321 forge script ./script/DeployOwned.s.sol --private-key $PRIVATE_KEY --broadcast
         address owner = msg.sender;
-        uint256 salt = vm.envUint("SALT");
+        bytes32 salt = bytes32(vm.envUint("SALT"));
         uint256 value = vm.envUint("VALUE");
         bytes memory creationCode = bytes.concat(type(Owned).creationCode, abi.encode(owner));
         bytes memory arguments = abi.encode(value);
@@ -98,7 +98,7 @@ import {Script, console} from "forge-std/Script.sol";
 
 contract DeplotMyContract is Script {
     function run() external {
-        uint256 salt = vm.envUint("SALT");
+        bytes32 salt = bytes32(vm.envUint("SALT"));
         bytes memory creationCode = type(Reserved).creationCode;
         bytes memory callback = abi.encodeCall(Reserved.deploy, (type(MyContract).creationCode));
         vm.startBroadcast(msg.sender);
