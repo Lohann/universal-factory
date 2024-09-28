@@ -41,13 +41,15 @@ function create2(bytes32 salt, bytes calldata creationCode, bytes calldata argum
 
 The address of a contracts deployed with `CREATE2` can be deterministically computed as:
 ```solidity
-bytes32 creationCodeHash = keccak256(creationCode);
-bytes32 create2hash = keccak256(abi.encodePacked(
-    hex"ff0000000000001c4bf962df86e38f0c10c7972c6e",
-    salt,
-    creationCodeHash
-));
-address contractAddress = address(uint160(uint256(create2hash)));
+function computeCreate2Address(bytes32 salt, bytes memory creationCode) external pure returns (address contractAddress) {
+    bytes32 creationCodeHash = keccak256(creationCode);
+    bytes32 create2hash = keccak256(abi.encodePacked(
+        hex"ff0000000000001c4bf962df86e38f0c10c7972c6e",
+        salt,
+        creationCodeHash
+    ));
+    contractAddress = address(uint160(uint256(create2hash)));
+}
 ```
 
 ## CREATE3 vs CREATE2
@@ -70,15 +72,17 @@ Works the same way as [CREATE2](./README.md#create2-methods), except the resulti
 
 The address of a contracts deployed with `CREATE3` can be deterministically computed as:
 ```solidity
-bytes32 create2salt = keccak256(abi.encodePacked(msg.sender, salt));
-bytes32 create2hash = keccak256(abi.encodePacked(
-    hex"ff0000000000001c4bf962df86e38f0c10c7972c6e",
-    create2salt,
-    hex"0281a97663cf81306691f0800b13a91c4d335e1d772539f127389adae654ffc6"
-));
-address create3proxy = address(uint160(uint256(create2hash)));
-address create3hash = keccak256(abi.encodePacked(hex"d694", create3proxy, uint8(0x01)));
-address contractAddress = address(uint160(uint256(create3hash)));
+function computeCreate3Address(address deployer, bytes32 salt) external pure returns (address contractAddress) {
+    bytes32 create3salt = keccak256(abi.encodePacked(deployer, salt));
+    bytes32 create2hash = keccak256(abi.encodePacked(
+        hex"ff0000000000001c4bf962df86e38f0c10c7972c6e",
+        create3salt,
+        hex"0281a97663cf81306691f0800b13a91c4d335e1d772539f127389adae654ffc6"
+    ));
+    address create3proxy = address(uint160(uint256(create2hash)));
+    bytes32 create3hash = keccak256(abi.encodePacked(hex"d694", create3proxy, uint8(0x01)));
+    contractAddress = address(uint160(uint256(create3hash)));
+}
 ```
 
 ## Deployments [Universal Factory](./src/UniversalFactory.sol)
