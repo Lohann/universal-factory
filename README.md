@@ -21,22 +21,24 @@ For examples on how to use the Universal Factor, see the [test/examples](./test/
 
 ## CREATE2 Methods
 ```solidity
-function create2(bytes32 salt, bytes calldata creationCode) external returns (address);
+function create2(bytes32 salt, bytes calldata creationCode) external payable returns (address);
 
-function create2(bytes32 salt, bytes calldata creationCode, bytes calldata arguments) external returns (address);
+function create2(bytes32 salt, bytes calldata creationCode, bytes calldata arguments)
+    external
+    payable
+    returns (address);
 
 function create2(bytes32 salt, bytes calldata creationCode, bytes calldata arguments, bytes calldata callback)
-        external
-        payable
-        returns (address);
+    external
+    payable
+    returns (address);
 ```
-Creates a contract at deterministic address using `CREATE2` opcode, the deployed contract address is deterministic, and can be computed using:
 - `salt` the salt of the contract creation, this value affect the resulting address.
 - `creationCode` Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
 - `arguments` data that will be available at `Context.data`, this field doesn't affect the resulting address.
-- `callback` data that will be available at `Context.data`, this field doesn't affect the resulting address.
+- `callback` callback called after create the contract, this field doesn't affect the resulting address.
+    - Obs: when using `create2(bytes32,bytes,bytes,bytes)` method, the callback is always called, even if the callback is empty.
 
-## CREATE2 Deterministic Address
 The address of a contracts deployed with `CREATE2` can be deterministically computed as:
 ```solidity
 bytes32 creationCodeHash = keccak256(creationCode);
@@ -50,20 +52,23 @@ address contractAddress = address(uint160(uint256(create2hash)));
 
 ## CREATE3 vs CREATE2
 ```solidity
-function create3(bytes32 salt, bytes calldata creationCode) external returns (address);
+function create3(bytes32 salt, bytes calldata creationCode) external payable returns (address);
 
-function create3(bytes32 salt, bytes calldata creationCode, bytes calldata arguments) external returns (address);
+function create3(bytes32 salt, bytes calldata creationCode, bytes calldata arguments)
+    external
+    payable
+    returns (address);
 
 function create3(bytes32 salt, bytes calldata creationCode, bytes calldata arguments, bytes calldata callback)
-        external
-        payable
-        returns (address);
+    external
+    payable
+    returns (address);
 ```
-Works the same way as [CREATE2](./README.md#create2-methods), except:
+Works the same way as [CREATE2](./README.md#create2-methods), except the resulting address is derived differently:
  - `creationCode` doesn't influence the resulting address.
  - `msg.sender` or deployer address influence the resulting address.
 
-The address of a contracts deployed with `CREATE2` can be deterministically computed as:
+The address of a contracts deployed with `CREATE3` can be deterministically computed as:
 ```solidity
 bytes32 create2salt = keccak256(abi.encodePacked(msg.sender, salt));
 bytes32 create2hash = keccak256(abi.encodePacked(
