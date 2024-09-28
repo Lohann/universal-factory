@@ -8,112 +8,75 @@
 When creating a contract, **Universal Factory** caches the provided `arguments`, `salt`, `msg.sender`, and other relevant info locally. Then make it available to the contract constructor through the `context()` method. The caching mechanism depends on the EVM version:
 - For `cancun` it uses the `TLOAD` and `TSTORE` opcodes from [EIP-1153 Transient Storage](https://eips.ethereum.org/EIPS/eip-1153) (~100 gas per word).
 - For `shanghai` it uses the `SLOAD` and `SSTORE` opcodes (~2900 gas per word), plus it make sure all values stored are non-zero, to guarantee an low and constant gas cost (see [SSTORE gas calculation](https://github.com/wolflo/evm-opcodes/blob/main/gas.md#a7-sstore) for more details).
-    - Context data storage slots are initialized with non-zero values in the Universal Factory constructor, obs: slots used when `arguments.length > 16` aren't initialized in the constructor.
-    - `msg.value` is only stored when greater than zero.
-    - `salt` is XOR with context data at `slot0` before being stored/loaded from `slot3`.
-    - `arguments` are XOR with `keccak256(arguments)` before being stored/loaded.
-    - Obs: `arguments` slots aren't initialized with non-zero, but once initialized, it never is impossible to set it back to zero again.
-- The contract automatically detects the EVM version, and will automatically switch to EIP-1153 once the chain supports it.
+    - Context data storage slots are [initialized with non-zero](./src/UniversalFactory.sol#L286-L290) values in the Universal Factory constructor.
+    - `msg.value` is only stored when [greater than zero](./src/UniversalFactory.sol#L872).
+    - `salt` is [XOR with context data](./src/UniversalFactory.sol#L864-L869) being stored/loaded.
+    - `arguments` are [XOR with keccak256(arguments)](src/UniversalFactory.sol#L874-L888) before being stored/loaded.
+    - Obs: `arguments` slots aren't initialized with non-zero, but once initialized, is impossible to set it back to zero again.
+- The contract [automatically detects the EVM version](./src/UniversalFactory.sol#L536-L540), and will use EIP-1153 if available.
 
 ## Features
 
 For examples on how to use the Universal Factor, see the [test/examples](./test/examples/) folder.
 
-## Interface
+## CREATE2 Methods
 ```solidity
-interface IUniversalFactory {
+function create2(bytes32 salt, bytes calldata creationCode) external returns (address);
 
-    // The create2 `creationCode` reverted.
-    error Create2Failed();
+function create2(bytes32 salt, bytes calldata creationCode, bytes calldata arguments) external returns (address);
 
-    // The create3 `creationCode` reverted.
-    error Create3Failed();
-
-    // The `callback` reverted, this error also wraps the error
-    // returned by the callback.
-    error CallbackFailed(bytes);
-
-    // The deterministic address already exists.
-    error ContractAlreadyExists(address);
-
-    // The provided `creationCode` is reserved for internal use only,
-    // try to use `create3(..)` variants instead.
-    error ReservedInitCode();
-
-    // The limit of 127 recursive calls was exceeded.
-    error CallStackOverflow();
-
-    // Emitted when a contract is succesfully created by this Factory.
-    // @notice When a callback is provided, this event is emitted BEFORE execute the callback.
-    event ContractCreated(
-        address indexed contractAddress,
-        bytes32 indexed creationCodeHash,
-        bytes32 indexed salt,
-        address indexed sender,
-        bytes32 argumentsHash,
-        bytes32 codeHash,
-        bytes32 callbackHash,
-        uint8 depth,
-        uint256 value
-    ) anonymous;
-
-    // Creates a contract at deterministic address using `CREATE2` opcode
-    function create2(bytes32 salt, bytes calldata creationCode) external payable returns (address);
-
-    // Same as above, but also includes `arguments` which will be available at `context.data`.
-    function create2(bytes32 salt, bytes calldata creationCode, bytes calldata arguments)
+function create2(bytes32 salt, bytes calldata creationCode, bytes calldata arguments, bytes calldata callback)
         external
         payable
         returns (address);
+```
+Creates a contract at deterministic address using `CREATE2` opcode, the deployed contract address is deterministic, and can be computed using:
+- `salt` the salt of the contract creation, this value affect the resulting address.
+- `creationCode` Creation code (constructor) of the contract to be deployed, this value affect the resulting address.
+- `arguments` data that will be available at `Context.data`, this field doesn't affect the resulting address.
+- `callback` data that will be available at `Context.data`, this field doesn't affect the resulting address.
 
-    // Same as above, but also includes a callback which is executed after the contract is created.
-    // @notice The `ctx.hasCallback` is always set to `true` when using, this method, it
-    // ALWAYS execute the callback, even when `callback` it is empty.
-    // IMPORTANT 1: Throws an `CallbackFailed` error if the callback reverts.
-    // IMPORTANT 2: Funds sent to this method will be forwarded using the callback`, not the contract constructor.
-    function create2(bytes32 salt, bytes calldata creationCode, bytes calldata arguments, bytes calldata callback)
-        external
-        payable
-        returns (address);
-
-    // Creates a contract at deterministic address by simulating the `CREATE3` opcode.
-    // this method is similar to `CREATE2` except the `creationCode` doesn't influence the resulting address, but the `msg.sender` does!
-    // see https://github.com/0xsequence/create3 for more details.
-    function create3(bytes32 salt, bytes calldata creationCode) external payable returns (address);
-
-    // Same as above, but also includes `arguments` which will be available at `context.data`.
-    function create3(bytes32 salt, bytes calldata creationCode, bytes calldata arguments)
-        external
-        payable
-        returns (address);
-
-    // Same as above, but also includes a callback which is executed after the contract is created.
-    // @notice The `ctx.hasCallback` is always set to `true` when using, this method, it
-    // ALWAYS execute the callback, even when `callback` it is empty.
-    // IMPORTANT 1: Throws an `CallbackFailed` error if the callback reverts.
-    // IMPORTANT 2: Funds sent to this method will be forwarded using the callback`, not the contract constructor.
-    function create3(bytes32 salt, bytes calldata creationCode, bytes calldata arguments, bytes calldata callback)
-        external
-        payable
-        returns (address);
-
-    // Context containing information that may be used in the contract constructor.
-    function context() external view returns (Context memory);
-}
+## CREATE2 Deterministic Address
+The address of a contracts deployed with `CREATE2` can be deterministically computed as:
+```solidity
+bytes32 creationCodeHash = keccak256(creationCode);
+bytes32 create2hash = keccak256(abi.encodePacked(
+    hex"ff0000000000001c4bf962df86e38f0c10c7972c6e",
+    salt,
+    creationCodeHash
+));
+address contractAddress = address(uint160(uint256(create2hash)));
 ```
 
-Information available in the **Context**:
--   **contractAddress**: The address of the contract being created, useful if a third contract calls `factory.context()`.
--   **sender**: actual `msg.sender` who called the `UniversalFactory`.
--   **callDepth**: current call depth, used when creating contract in neast.
--   **kind**: type of create method being used, `create2` or `create3`, obs: for create3 `msg.sender != address(FACTORY)`.
--   **hasCallback** Wheter who called provided an callback or not.
--   **callbackSelector** first 4 bytes of the callback payload.
--   **value** If a callback is provided, the `msg.value` is sent to the callback, not the constructor, this field makes the value available in the constructor.
--   **salt** The salt used to derive this address.
--   **data** Additional data with no specified format
+## CREATE3 vs CREATE2
+```solidity
+function create3(bytes32 salt, bytes calldata creationCode) external returns (address);
 
-## Deployments Universal Factory
+function create3(bytes32 salt, bytes calldata creationCode, bytes calldata arguments) external returns (address);
+
+function create3(bytes32 salt, bytes calldata creationCode, bytes calldata arguments, bytes calldata callback)
+        external
+        payable
+        returns (address);
+```
+Works the same way as [CREATE2](./README.md#create2-methods), except:
+ - `creationCode` doesn't influence the resulting address.
+ - `msg.sender` or deployer address influence the resulting address.
+
+The address of a contracts deployed with `CREATE2` can be deterministically computed as:
+```solidity
+bytes32 create2salt = keccak256(abi.encodePacked(msg.sender, salt));
+bytes32 create2hash = keccak256(abi.encodePacked(
+    hex"ff0000000000001c4bf962df86e38f0c10c7972c6e",
+    create2salt,
+    hex"0281a97663cf81306691f0800b13a91c4d335e1d772539f127389adae654ffc6"
+));
+address proxyAddress = address(uint160(uint256(create2hash)));
+address create3hash = keccak256(abi.encodePacked(hex"d694", create2addr, uint8(0x01)));
+address contractAddress = address(uint160(uint256(create3hash)));
+```
+
+## Deployments [Universal Factory](./src/UniversalFactory.sol)
 The Universal Factory is already available in 8 blockchains and 7 testnets at address `0x0000000000001C4Bf962dF86e38F0c10c7972C6E`:
 
 -  [**Ethereum Mainnet**](https://etherscan.io/address/0x0000000000001C4Bf962dF86e38F0c10c7972C6E)
