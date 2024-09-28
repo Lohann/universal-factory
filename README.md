@@ -76,8 +76,8 @@ bytes32 create2hash = keccak256(abi.encodePacked(
     create2salt,
     hex"0281a97663cf81306691f0800b13a91c4d335e1d772539f127389adae654ffc6"
 ));
-address proxyAddress = address(uint160(uint256(create2hash)));
-address create3hash = keccak256(abi.encodePacked(hex"d694", create2addr, uint8(0x01)));
+address create3proxy = address(uint160(uint256(create2hash)));
+address create3hash = keccak256(abi.encodePacked(hex"d694", create3proxy, uint8(0x01)));
 address contractAddress = address(uint160(uint256(create3hash)));
 ```
 
