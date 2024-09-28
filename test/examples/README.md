@@ -41,8 +41,8 @@ contract Example02 {
     IUniversalFactory internal constant FACTORY = IUniversalFactory(0x0000000000001C4Bf962dF86e38F0c10c7972C6E);
     address public immutable OWNER;
 
-    // Obs: the `owner` parameter affects the resulting address when using `create3` methods,
-    // which is desired in this case to bound the contract address to a specific owner.
+    // Obs: the `owner` parameter affects the resulting address, which is desired in this case to
+    // bound the contract address to a specific owner.
     constructor(address owner) payable {
         // set the immutable.
         OWNER = owner;
