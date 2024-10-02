@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {IUniversalFactory, Context} from "../../src/UniversalFactory.sol";
+import {IUniversalFactory, Context} from "../../src/IUniversalFactory.sol";
 
 /**
  * @dev Reserved contract, can only be deployed by `owner`.

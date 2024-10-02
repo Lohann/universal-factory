@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-// import {VmSafe} from "forge-std/Vm.sol";
-// import {console} from "forge-std/console.sol";
-import {Context, IUniversalFactory} from "../../src/UniversalFactory.sol";
+import {Context, IUniversalFactory} from "../../src/IUniversalFactory.sol";
 
 contract NestedCreate {
-    // VmSafe internal constant VM = VmSafe(address(uint160(uint256(keccak256("hevm cheat code")))));
-
     IUniversalFactory private FACTORY;
     Context private _ctx;
     uint256 private _constructorCallValue;
@@ -18,16 +14,6 @@ contract NestedCreate {
         FACTORY = factory;
         Context memory ctx = factory.context();
         require(ctx.contractAddress == address(this), "Can only be created by `UniversalFactory`");
-        // console.log("       address(this):", address(this));
-        // console.log(" ctx.contractAddress:", ctx.contractAddress);
-        // console.log("          ctx.sender:", ctx.sender);
-        // console.log("       ctx.callDepth:", ctx.callDepth);
-        // console.log("            ctx.kind:", uint256(ctx.kind));
-        // console.log("     ctx.hasCallback:", ctx.hasCallback);
-        // console.log("ctx.callbackSelector:", VM.toString(bytes32(ctx.callbackSelector)));
-        // console.log("            ctx.salt:", VM.toString(bytes32(ctx.salt)));
-        // console.log("            ctx.data:", ctx.data.length);
-        // console.log("");
 
         if (ctx.hasCallback) {
             require(ctx.callbackSelector == NestedCreate.validateContext.selector, "invalid callback selector");

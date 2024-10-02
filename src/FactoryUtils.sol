@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import {IUniversalFactory} from "./UniversalFactory.sol";
+import {IUniversalFactory} from "./IUniversalFactory.sol";
 
 /**
  * @title A library with helper methods for compute `CREATE2` and `CREATE3` addresses.

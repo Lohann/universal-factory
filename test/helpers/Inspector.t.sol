@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Context, IUniversalFactory} from "../../src/UniversalFactory.sol";
+import {Context, IUniversalFactory} from "../../src/IUniversalFactory.sol";
 
 contract Inspector {
     IUniversalFactory private FACTORY;

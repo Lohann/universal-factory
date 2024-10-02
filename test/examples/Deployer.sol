@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Context, IUniversalFactory} from "@universal-factory/UniversalFactory.sol";
+import {Context, IUniversalFactory} from "@universal-factory/IUniversalFactory.sol";
 
 // The `Deployer` contract is responsible for deploying the `MyContract` contract.
 // The `arguments` contains owner's signature authorizing the deployment of a specific creationCodeHash by anyone.

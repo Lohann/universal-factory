@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Vm} from "forge-std/Vm.sol";
-import {IUniversalFactory} from "@universal-factory/UniversalFactory.sol";
+import {IUniversalFactory} from "@universal-factory/IUniversalFactory.sol";
 
 library TestUtils {
     // Cheat code address, 0x7109709ECfa91a80626fF3989D68f67F5b1DD12D.
