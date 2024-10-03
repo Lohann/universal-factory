@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.0;
 
 import {Vm} from "forge-std/Vm.sol";
 import {IUniversalFactory} from "@universal-factory/IUniversalFactory.sol";
