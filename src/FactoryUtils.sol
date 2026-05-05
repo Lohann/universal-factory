@@ -4,7 +4,8 @@ pragma solidity ^0.8.0;
 import {IUniversalFactory} from "./IUniversalFactory.sol";
 
 /**
- * @title A library with helper methods for compute `CREATE2` and `CREATE3` addresses.
+ * @title Helper library for compute `CREATE2` and `CREATE3` addresses
+ * created by UniversalFactory.
  * @author Lohann Paterno Coutinho Ferreira <developer@lohann.dev>
  */
 library FactoryUtils {

@@ -15,16 +15,19 @@ import {TestUtils} from "./helpers/TestUtils.sol";
 contract UniversalFactoryTest is Test {
     using FactoryUtils for IUniversalFactory;
 
-    IUniversalFactory public factory;
+    address private constant DEPLOYER = 0x908064dE91a32edaC91393FEc3308E6624b85941;
+    IUniversalFactory internal constant FACTORY = IUniversalFactory(0x0000000000001C4Bf962dF86e38F0c10c7972C6E);
 
-    function setUp() public {
-        assertEq(msg.sender, 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38);
-        assertEq(vm.getNonce(msg.sender), 3);
-        vm.startPrank(msg.sender, msg.sender);
-        factory = IUniversalFactory(address(new UniversalFactory()));
+    constructor() {
+        vm.deal(DEPLOYER, 100 ether);
+        vm.setNonceUnsafe(DEPLOYER, 0);
+        vm.startPrank(DEPLOYER, DEPLOYER);
+        address factory = address(new UniversalFactory());
         vm.stopPrank();
+        assertEq(factory, 0x0000000000001C4Bf962dF86e38F0c10c7972C6E);
     }
 
+    /*  */
     function assertEq(Context memory a, Context memory b) private pure {
         assertEq(a.contractAddress, b.contractAddress, "a.contractAddress != b.contractAddress");
         assertEq(a.sender, b.sender, "a.sender != b.sender");
@@ -45,23 +48,20 @@ contract UniversalFactoryTest is Test {
         assertEq(ctx, expected);
     }
 
-    function test_correctAddress() external view {
-        assertEq(msg.sender, DEFAULT_SENDER);
-        assertEq(vm.getNonce(msg.sender), 5);
-        address expect = address(uint160(uint256(keccak256(hex"d6941804c8AB1F12E6bbf3894d4083f33e07309d1f3803"))));
-        assertEq(address(factory), expect);
+    function test_correctAddress() external pure {
+        assertEq(address(FACTORY), computeCreateAddress(DEPLOYER, 0));
     }
 
     function test_create2() external {
         address sender = TestUtils.testAccount(100 ether);
         bytes32 salt = 0x7777777777777777777777777777777777777777777777777777777777777777;
         bytes memory initCode =
-            abi.encodePacked(type(ReservedContract).creationCode, abi.encode(address(factory), sender));
+            abi.encodePacked(type(ReservedContract).creationCode, abi.encode(address(FACTORY), sender));
         vm.startPrank(sender, sender);
 
         // Reverts if the `callback` is not provided.
         vm.expectRevert(IUniversalFactory.Create2Failed.selector);
-        factory.create2(salt, initCode);
+        FACTORY.create2(salt, initCode);
 
         // Reverts no value is sent reverts.
         bytes memory initializer = abi.encodeCall(ReservedContract.initialize, ());
@@ -70,12 +70,12 @@ contract UniversalFactoryTest is Test {
             bytes memory innerError = abi.encodeWithSignature("Error(string)", "must send funds");
             bytes memory expectRevertMessage = abi.encodeWithSignature("CallbackFailed(bytes)", innerError);
             vm.expectRevert(expectRevertMessage);
-            factory.create2(salt, initCode, "", initializer);
+            FACTORY.create2(salt, initCode, "", initializer);
         }
 
         // Should work if value is sent.
-        ReservedContract deployed = ReservedContract(factory.create2{value: 1}(salt, initCode, "", initializer));
-        assertEq(address(deployed), factory.computeCreate2Address(salt, initCode));
+        ReservedContract deployed = ReservedContract(FACTORY.create2{value: 1}(salt, initCode, "", initializer));
+        assertEq(address(deployed), FACTORY.computeCreate2Address(salt, initCode));
 
         // Cannot initialize manually.
         vm.expectRevert("unauthorized");
@@ -92,7 +92,7 @@ contract UniversalFactoryTest is Test {
 
         // Setup the test environment.
         address sender = TestUtils.testAccount(100 ether);
-        bytes memory initCode = abi.encodePacked(type(Inspector).creationCode, abi.encode(address(factory)));
+        bytes memory initCode = abi.encodePacked(type(Inspector).creationCode, abi.encode(address(FACTORY)));
         bytes32 creationCodeHash = keccak256(initCode);
         bytes32 runtimeCodehash = keccak256(type(Inspector).runtimeCode);
         bytes32 callbackHash = keccak256(init);
@@ -100,7 +100,7 @@ contract UniversalFactoryTest is Test {
         uint256 snapshotId = vm.snapshot();
 
         Context memory ctx = Context({
-            contractAddress: factory.computeCreate2Address(salt, creationCodeHash),
+            contractAddress: FACTORY.computeCreate2Address(salt, creationCodeHash),
             sender: sender,
             callDepth: 1,
             kind: CreateKind.CREATE2,
@@ -117,7 +117,7 @@ contract UniversalFactoryTest is Test {
         emit IUniversalFactory.ContractCreated(
             ctx.contractAddress, creationCodeHash, salt, ctx.sender, bytes32(0), runtimeCodehash, bytes32(0), 1, 0
         );
-        inspector = Inspector(payable(factory.create2(salt, initCode)));
+        inspector = Inspector(payable(FACTORY.create2(salt, initCode)));
         _inpectContext(ctx, inspector, 0);
 
         // Test `create3(uint256,bytes)` with value
@@ -127,7 +127,7 @@ contract UniversalFactoryTest is Test {
         emit IUniversalFactory.ContractCreated(
             ctx.contractAddress, creationCodeHash, salt, ctx.sender, bytes32(0), runtimeCodehash, bytes32(0), 1, 1 ether
         );
-        inspector = Inspector(payable(factory.create2{value: 1 ether}(salt, initCode)));
+        inspector = Inspector(payable(FACTORY.create2{value: 1 ether}(salt, initCode)));
         _inpectContext(ctx, inspector, 1 ether);
 
         // Test `create3(uint256,bytes,bytes)`
@@ -140,7 +140,7 @@ contract UniversalFactoryTest is Test {
         emit IUniversalFactory.ContractCreated(
             ctx.contractAddress, creationCodeHash, salt, ctx.sender, callbackHash, runtimeCodehash, callbackHash, 1, 0
         );
-        inspector = Inspector(payable(factory.create2(salt, initCode, ctx.data, ctx.data)));
+        inspector = Inspector(payable(FACTORY.create2(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 0);
 
         // Test `create3(uint256,bytes,bytes)` with value
@@ -159,7 +159,7 @@ contract UniversalFactoryTest is Test {
             1,
             1 ether
         );
-        inspector = Inspector(payable(factory.create2{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
+        inspector = Inspector(payable(FACTORY.create2{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 1 ether);
     }
 
@@ -173,14 +173,14 @@ contract UniversalFactoryTest is Test {
 
         // Setup the test environment.
         address sender = TestUtils.testAccount(1000 ether);
-        bytes memory initCode = abi.encodePacked(type(Inspector).creationCode, abi.encode(address(factory)));
+        bytes memory initCode = abi.encodePacked(type(Inspector).creationCode, abi.encode(address(FACTORY)));
         bytes32 creationCodeHash = keccak256(initCode);
         bytes32 runtimeCodehash = keccak256(type(Inspector).runtimeCode);
         bytes32 callbackHash = keccak256(init);
         vm.startPrank(sender, sender);
 
         Context memory ctx = Context({
-            contractAddress: factory.computeCreate3Address(sender, salt),
+            contractAddress: FACTORY.computeCreate3Address(sender, salt),
             sender: sender,
             callDepth: 1,
             kind: CreateKind.CREATE3,
@@ -198,7 +198,7 @@ contract UniversalFactoryTest is Test {
         emit IUniversalFactory.ContractCreated(
             ctx.contractAddress, creationCodeHash, salt, ctx.sender, bytes32(0), runtimeCodehash, bytes32(0), 1, 0
         );
-        inspector = Inspector(payable(factory.create3(salt, initCode)));
+        inspector = Inspector(payable(FACTORY.create3(salt, initCode)));
         _inpectContext(ctx, inspector, 0);
 
         // Test `create3(uint256,bytes)` with value
@@ -208,7 +208,7 @@ contract UniversalFactoryTest is Test {
         emit IUniversalFactory.ContractCreated(
             ctx.contractAddress, creationCodeHash, salt, ctx.sender, bytes32(0), runtimeCodehash, bytes32(0), 1, 1 ether
         );
-        inspector = Inspector(payable(factory.create3{value: 1 ether}(salt, initCode)));
+        inspector = Inspector(payable(FACTORY.create3{value: 1 ether}(salt, initCode)));
         _inpectContext(ctx, inspector, 1 ether);
 
         // Test `create3(uint256,bytes,bytes)`
@@ -221,7 +221,7 @@ contract UniversalFactoryTest is Test {
         emit IUniversalFactory.ContractCreated(
             ctx.contractAddress, creationCodeHash, salt, ctx.sender, callbackHash, runtimeCodehash, callbackHash, 1, 0
         );
-        inspector = Inspector(payable(factory.create3(salt, initCode, ctx.data, ctx.data)));
+        inspector = Inspector(payable(FACTORY.create3(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 0);
 
         // Test `create3(uint256,bytes,bytes)` with value
@@ -239,7 +239,7 @@ contract UniversalFactoryTest is Test {
             1,
             1 ether
         );
-        inspector = Inspector(payable(factory.create3{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
+        inspector = Inspector(payable(FACTORY.create3{value: 1 ether}(salt, initCode, ctx.data, ctx.data)));
         _inpectContext(ctx, inspector, 1 ether);
     }
 
@@ -249,7 +249,7 @@ contract UniversalFactoryTest is Test {
      */
     function test_neastedCreate2() external noGasMetering {
         address sender = TestUtils.testAccount(100_000 ether);
-        bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(factory)));
+        bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(FACTORY)));
         bytes32 creationCodeHash = keccak256(initCode);
         bytes32 runtimeCodeHash = keccak256(type(NestedCreate).runtimeCode);
         vm.startPrank(sender, sender);
@@ -268,7 +268,7 @@ contract UniversalFactoryTest is Test {
 
         // Record the logs and deploy the contract
         vm.recordLogs();
-        NestedCreate deployed = NestedCreate(payable(factory.create2(bytes32(salt), initCode, params, callback)));
+        NestedCreate deployed = NestedCreate(payable(FACTORY.create2(bytes32(salt), initCode, params, callback)));
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(address(deployed).code, type(NestedCreate).runtimeCode, "runtime bytecode mismatch");
         assertEq(logs.length, maxDepth, "logs.length != maxDepth");
@@ -293,7 +293,7 @@ contract UniversalFactoryTest is Test {
             ctx.callDepth += 1;
             ctx.salt = bytes32(uint256(ctx.salt) + salt);
             ctx.sender = ctx.contractAddress;
-            ctx.contractAddress = factory.computeCreate2Address(ctx.salt, creationCodeHash);
+            ctx.contractAddress = FACTORY.computeCreate2Address(ctx.salt, creationCodeHash);
             ctx.data = params;
 
             // prepare the `ctx.data` for the next child contract.
@@ -343,7 +343,7 @@ contract UniversalFactoryTest is Test {
      */
     function test_maxDepth() external noGasMetering {
         address sender = TestUtils.testAccount(100_000 ether);
-        bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(factory)));
+        bytes memory initCode = abi.encodePacked(type(NestedCreate).creationCode, abi.encode(address(FACTORY)));
         vm.startPrank(sender, sender);
         uint256 maxDepth = 128;
 
@@ -357,6 +357,6 @@ contract UniversalFactoryTest is Test {
 
         // Must fail when the depth is greater than 127.
         vm.expectRevert(IUniversalFactory.Create2Failed.selector);
-        NestedCreate(payable(factory.create2(bytes32(uint256(0x0101)), initCode, params, callback)));
+        NestedCreate(payable(FACTORY.create2(bytes32(uint256(0x0101)), initCode, params, callback)));
     }
 }

@@ -3,6 +3,10 @@ pragma solidity ^0.8.0;
 
 import {Context, IUniversalFactory} from "../../src/IUniversalFactory.sol";
 
+/**
+ * @dev Memoize the context and arguments provided by the UniversalFactory,
+ * used for testing.
+ */
 contract Inspector {
     IUniversalFactory private FACTORY;
     Context private _ctx;

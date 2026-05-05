@@ -63,8 +63,15 @@ interface IUniversalFactory {
     error CallStackOverflow();
 
     /**
-     * @dev Emitted when a contract is succesfully created, this is the only event emitted by the
-     * universal factory.
+     * @dev Emitted after a contract is succesfully created and initialized.
+     * - `contractAddress` address of the contract created.
+     * - `creationCodeHash` created contract bytecode hash.
+     * - `salt` salt used to create the contract.
+     * - `sender` account who created the contract.
+     * - `argumentsHash` zero if no arguments were provided, otherwise keccak256 hash of the arguments bytes.
+     * - `callbackHash` zero if no callback were provided, otherwise keccak256 hash of the callback bytes.
+     * - `depth` the context depth if multiple contracts are created in the same transaction.
+     * - `value` msg.value send to the created contract.
      */
     event ContractCreated(
         address indexed contractAddress,

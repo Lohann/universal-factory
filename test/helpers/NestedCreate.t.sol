@@ -3,6 +3,10 @@ pragma solidity ^0.8.0;
 
 import {Context, IUniversalFactory} from "../../src/IUniversalFactory.sol";
 
+/**
+ * @dev A contract created by the UniversalFactory, which also creates
+ * a child contract using the UniversalFactory.
+ */
 contract NestedCreate {
     IUniversalFactory private FACTORY;
     Context private _ctx;
